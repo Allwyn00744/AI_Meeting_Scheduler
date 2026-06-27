@@ -1,23 +1,33 @@
 from pydantic import BaseModel, EmailStr, ConfigDict
-from typing import Optional
 
 
-# Used when creating a new user
 class UserCreate(BaseModel):
     name: str
     email: EmailStr
+    password: str
+    timezone: str = "UTC"
 
 
-# Used when updating a user
 class UserUpdate(BaseModel):
-    name: Optional[str] = None
-    email: Optional[EmailStr] = None
+    name: str | None = None
+    email: EmailStr | None = None
+    timezone: str | None = None
 
 
-# Used when returning user data
 class UserResponse(BaseModel):
     id: int
     name: str
     email: EmailStr
+    timezone: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
