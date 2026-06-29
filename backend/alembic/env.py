@@ -9,6 +9,7 @@ from app.db.database import Base
 # Import models so Alembic can detect them
 from app.models.user import User
 from app.models.meeting import Meeting
+from app.models.meeting_participant import MeetingParticipant
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
