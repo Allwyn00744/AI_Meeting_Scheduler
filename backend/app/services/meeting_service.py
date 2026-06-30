@@ -1,10 +1,12 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+from datetime import date
 
 from app.models.meeting import Meeting
 from app.models.user import User
 from app.repositories.meeting_repository import MeetingRepository
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
+from app.services.conflict_service import ConflictService
 
 
 class MeetingService:
@@ -15,6 +17,29 @@ class MeetingService:
         meeting: MeetingCreate,
         current_user: User,
     ):
+        # Get all meetings of the current user
+        existing_meetings = MeetingRepository.get_user_meetings(
+            db,
+            current_user.id,
+        )
+
+        # Check for conflicts
+        conflict, existing_meeting = ConflictService.has_time_conflict(
+            meeting.start_time,
+            meeting.end_time,
+            existing_meetings,
+        )
+
+        if conflict:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Meeting conflicts with "
+                    f"'{existing_meeting.title}'"
+                ),
+            )
+
+        # Create the meeting
         db_meeting = Meeting(
             title=meeting.title,
             description=meeting.description,
@@ -86,3 +111,50 @@ class MeetingService:
         return {
             "message": "Meeting deleted successfully"
         }
+    @staticmethod
+    def search_meetings(
+        db: Session,
+        keyword: str,
+        current_user: User,
+    ):
+        return MeetingRepository.search_meetings(
+            db,
+            current_user.id,
+            keyword,
+        )
+    @staticmethod
+    @staticmethod
+    def filter_by_status(
+        db: Session,
+        status: str,
+        current_user: User,
+    ):
+        return MeetingRepository.filter_by_status(
+            db,
+            current_user.id,
+            status,
+        )
+    @staticmethod
+    def filter_by_date(
+        db: Session,
+        meeting_date: date,
+        current_user: User,
+    ):
+        return MeetingRepository.filter_by_date(
+            db,
+            current_user.id,
+            meeting_date,
+        )
+    @staticmethod
+    def filter_by_date_range(
+        db: Session,
+        start_date: date,
+        end_date: date,
+        current_user: User,
+    ):
+        return MeetingRepository.filter_by_date_range(
+            db,
+            current_user.id,
+            start_date,
+            end_date,
+        )

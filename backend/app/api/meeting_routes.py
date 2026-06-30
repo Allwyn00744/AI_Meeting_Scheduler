@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends,Query
 from sqlalchemy.orm import Session
+from datetime import date
 
 from app.auth.dependencies import get_current_user
 from app.db.database import get_db
@@ -47,6 +48,30 @@ def get_my_meetings(
         current_user,
     )
 
+@router.get("/search")
+def search_meetings(
+    keyword: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return MeetingService.search_meetings(
+        db,
+        keyword,
+        current_user,
+    )
+
+@router.get("/filter/status")
+def filter_by_status(
+    status: str = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return MeetingService.filter_by_status(
+        db,
+        status,
+        current_user,
+    )
+
 
 @router.put(
     "/{meeting_id}",
@@ -77,5 +102,29 @@ def delete_meeting(
     return MeetingService.delete_meeting(
         db,
         meeting_id,
+        current_user,
+    )
+@router.get("/filter/date")
+def filter_by_date(
+    meeting_date: date = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return MeetingService.filter_by_date(
+        db,
+        meeting_date,
+        current_user,
+    )
+@router.get("/filter/range")
+def filter_by_date_range(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return MeetingService.filter_by_date_range(
+        db,
+        start_date,
+        end_date,
         current_user,
     )
