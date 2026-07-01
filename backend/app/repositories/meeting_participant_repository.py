@@ -53,3 +53,16 @@ class MeetingParticipantRepository:
     def delete(db: Session, participant: MeetingParticipant):
         db.delete(participant)
         db.commit()
+
+    @staticmethod
+    def create_many(
+        db: Session,
+        participants: list[MeetingParticipant],
+    ):
+        db.add_all(participants)
+        db.commit()
+
+        for participant in participants:
+            db.refresh(participant)
+
+        return participants

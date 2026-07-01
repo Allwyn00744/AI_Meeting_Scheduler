@@ -52,6 +52,7 @@ class MeetingRepository:
             .filter(Meeting.owner_id == owner_id)
             .all()
         )
+    
     @staticmethod
     def search_meetings(
         db: Session,
@@ -69,6 +70,7 @@ class MeetingRepository:
             )
             .all()
         )
+    
     @staticmethod
     def filter_by_status(
         db: Session,
@@ -83,6 +85,7 @@ class MeetingRepository:
             )
             .all()
         )
+    
     @staticmethod
     def filter_by_date(
         db: Session,
@@ -97,6 +100,7 @@ class MeetingRepository:
             )
             .all()
         )
+    
     @staticmethod
     def filter_by_date_range(
         db: Session,
@@ -113,3 +117,4 @@ class MeetingRepository:
             )
             .all()
         )
+    
