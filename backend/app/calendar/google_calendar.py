@@ -61,3 +61,55 @@ class GoogleCalendarAPI:
         )
 
         return created_event
+    @staticmethod
+    def update_calendar_event(
+        credential: GoogleCredential,
+        event_id: str,
+        title: str,
+        description: str,
+        start_time,
+        end_time,
+        location: str | None = None,
+    ):
+        service = GoogleCalendarAPI.get_calendar_service(
+            credential
+        )
+
+        event = {
+            "summary": title,
+            "description": description,
+            "location": location,
+            "start": {
+                "dateTime": start_time.isoformat(),
+            },
+            "end": {
+                "dateTime": end_time.isoformat(),
+            },
+        }
+
+        updated_event = (
+            service.events()
+            .update(
+                calendarId="primary",
+                eventId=event_id,
+                body=event,
+            )
+            .execute()
+        )
+
+        return updated_event
+    @staticmethod
+    def delete_calendar_event(
+        credential: GoogleCredential,
+        event_id: str,
+    ):
+        service = GoogleCalendarAPI.get_calendar_service(
+            credential
+        )
+
+        service.events().delete(
+            calendarId="primary",
+            eventId=event_id,
+        ).execute()
+
+        return True

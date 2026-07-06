@@ -7,7 +7,8 @@ from app.models.user import User
 from app.repositories.meeting_repository import MeetingRepository
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
 from app.services.conflict_service import ConflictService
-
+from app.services.google_calendar_service import GoogleCalendarService
+from app.services.google_calendar_service import GoogleCalendarService
 
 class MeetingService:
 
@@ -84,7 +85,16 @@ class MeetingService:
         for key, value in update_data.items():
             setattr(meeting, key, value)
 
-        return MeetingRepository.update(db, meeting)
+        meeting = MeetingRepository.update(db, meeting)
+
+        # Sync with Google Calendar
+        if meeting.google_event_id:
+            GoogleCalendarService.update_google_calendar_event(
+                db=db,
+                meeting=meeting,
+            )
+
+        return meeting
 
     @staticmethod
     def delete_meeting(
@@ -92,7 +102,10 @@ class MeetingService:
         meeting_id: int,
         current_user: User,
     ):
-        meeting = MeetingRepository.get_by_id(db, meeting_id)
+        meeting = MeetingRepository.get_by_id(
+            db,
+            meeting_id,
+        )
 
         if meeting is None:
             raise HTTPException(
@@ -106,7 +119,18 @@ class MeetingService:
                 detail="Not authorized",
             )
 
-        MeetingRepository.delete(db, meeting)
+        # Delete Google Calendar event first
+        if meeting.google_event_id:
+            GoogleCalendarService.delete_google_calendar_event(
+                db=db,
+                meeting=meeting,
+            )
+
+        # Delete meeting from database
+        MeetingRepository.delete(
+            db,
+            meeting,
+        )
 
         return {
             "message": "Meeting deleted successfully"
@@ -122,7 +146,7 @@ class MeetingService:
             current_user.id,
             keyword,
         )
-    @staticmethod
+
     @staticmethod
     def filter_by_status(
         db: Session,

@@ -133,4 +133,22 @@ class MeetingRepository:
             )
             .all()
         )
+    @staticmethod
+    def get_by_id(
+        db: Session,
+        meeting_id: int,
+    ):
+        return (
+            db.query(Meeting)
+            .filter(Meeting.id == meeting_id)
+            .first()
+            )
+    @staticmethod
+    def update(
+        db: Session,
+        meeting: Meeting,
+    ):
+        db.commit()
+        db.refresh(meeting)
+        return meeting
     

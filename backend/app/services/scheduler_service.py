@@ -15,6 +15,7 @@ from app.repositories.meeting_participant_repository import (
 from app.services.email_service import EmailService
 from app.repositories.user_repository import UserRepository
 
+from app.schemas.meeting import MeetingUpdate, MeetingResponse
 from app.schemas.scheduler import (
     ScheduleMeetingRequest,
     SuggestSlotsResponse,
@@ -184,6 +185,11 @@ class SchedulerService:
                     end_time=db_meeting.end_time,
                     location=db_meeting.location,
                 )
+                db_meeting.google_event_id = event.get("id")
+                db_meeting.google_event_link = event.get("htmlLink")
+
+                db.commit()
+                db.refresh(db_meeting)
 
                 print("=" * 50)
                 print("Google Calendar Event Created Successfully")
@@ -216,10 +222,10 @@ class SchedulerService:
                     location=db_meeting.location,
                 )
 
-                return {
-                    "message": "Meeting(s) scheduled successfully",
-                    "meeting_ids": created_meetings,
-                }
+        return {
+            "message": "Meeting(s) scheduled successfully",
+            "meeting_ids": created_meetings,
+        }
     
     @staticmethod
     def suggest_slots(
@@ -284,3 +290,43 @@ class SchedulerService:
                     )
                 ]
             )
+    @staticmethod
+    def update_meeting(
+        db: Session,
+        meeting_id: int,
+        meeting_data: MeetingUpdate,
+        current_user: User,
+    ):
+        db_meeting = MeetingRepository.get_by_id(
+            db,
+            meeting_id,
+        )
+
+        if db_meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found.",
+            )
+
+        if db_meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only update your own meetings.",
+            )
+
+        update_data = meeting_data.model_dump(exclude_unset=True)
+
+        for key, value in update_data.items():
+            setattr(db_meeting, key, value)
+
+        MeetingRepository.update(
+            db,
+            db_meeting,
+        )
+
+        GoogleCalendarService.update_google_calendar_event(
+            db,
+            db_meeting,
+        )
+
+        return db_meeting

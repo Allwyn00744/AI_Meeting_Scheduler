@@ -44,6 +44,15 @@ class Meeting(Base):
         String(255),
         nullable=True,
     )
+    google_event_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    google_event_link: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
 
     status: Mapped[str] = mapped_column(
         String(50),
@@ -65,3 +74,4 @@ class Meeting(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    
