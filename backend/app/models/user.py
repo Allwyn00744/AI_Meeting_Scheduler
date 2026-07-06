@@ -1,8 +1,12 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import String, DateTime, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column,relationship
 from app.db.database import Base
+
+if TYPE_CHECKING:
+    from app.models.google_credential import GoogleCredential
 
 
 class User(Base):
@@ -47,4 +51,10 @@ class User(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+    )
+    google_credential: Mapped["GoogleCredential | None"] = relationship(
+        "GoogleCredential",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
     )

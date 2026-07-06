@@ -1,6 +1,7 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import timedelta
+import traceback
 
 from app.models.meeting import Meeting
 from app.models.meeting_participant import MeetingParticipant
@@ -22,6 +23,7 @@ from app.schemas.scheduler import (
 
 from app.services.conflict_service import ConflictService
 from app.services.availability_service import AvailabilityService
+from app.services.google_calendar_service import GoogleCalendarService
 
 class SchedulerService:
     """
@@ -172,27 +174,52 @@ class SchedulerService:
                 db,
                 participants,
             )
+            try:
+                event = GoogleCalendarService.create_google_calendar_event(
+                    db=db,
+                    user_id=current_user.id,
+                    title=db_meeting.title,
+                    description=db_meeting.description or "",
+                    start_time=db_meeting.start_time,
+                    end_time=db_meeting.end_time,
+                    location=db_meeting.location,
+                )
+
+                print("=" * 50)
+                print("Google Calendar Event Created Successfully")
+                print(f"Event ID   : {event.get('id')}")
+                print(f"Event Link : {event.get('htmlLink')}")
+                print("=" * 50)
+
+            except Exception:
+                print("=" * 50)
+                print("Google Calendar Integration Failed")
+                traceback.print_exc()
+                print("=" * 50)
 
             created_meetings.append(db_meeting.id)
-            # Send meeting invitations
-        participant_users = UserRepository.get_users_by_ids(
-            db,
-            meeting.participant_ids,
-        )
 
-        for participant in participant_users:
-            EmailService.send_meeting_invitation(
-                to_email=participant.email,
-                meeting_title=db_meeting.title,
-                start_time=db_meeting.start_time,
-                end_time=db_meeting.end_time,
-                location=db_meeting.location,
+            # Send meeting invitations
+        if meeting.participant_ids:
+
+            participant_users = UserRepository.get_users_by_ids(
+                db,
+                meeting.participant_ids,
             )
 
-        return {
-            "message": "Meeting(s) scheduled successfully",
-            "meeting_ids": created_meetings,
-        }
+            for participant in participant_users:
+                EmailService.send_meeting_invitation(
+                    to_email=participant.email,
+                    meeting_title=db_meeting.title,
+                    start_time=db_meeting.start_time,
+                    end_time=db_meeting.end_time,
+                    location=db_meeting.location,
+                )
+
+                return {
+                    "message": "Meeting(s) scheduled successfully",
+                    "meeting_ids": created_meetings,
+                }
     
     @staticmethod
     def suggest_slots(
