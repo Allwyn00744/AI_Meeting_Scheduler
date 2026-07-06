@@ -117,4 +117,20 @@ class MeetingRepository:
             )
             .all()
         )
+    @staticmethod
+    def get_meetings_between(
+        db: Session,
+        owner_id: int,
+        start_time,
+        end_time,
+    ):
+        return (
+            db.query(Meeting)
+            .filter(
+                Meeting.owner_id == owner_id,
+                Meeting.start_time < end_time,
+                Meeting.end_time > start_time,
+            )
+            .all()
+        )
     

@@ -1,11 +1,14 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from app.models.availability import Availability
 from app.models.user import User
 from app.repositories.availability_repository import (
     AvailabilityRepository,
 )
+
+
 from app.schemas.availability import (
     AvailabilityCreate,
     AvailabilityUpdate,
@@ -126,3 +129,27 @@ class AvailabilityService:
         return {
             "message": "Availability deleted successfully"
         }
+    @staticmethod
+    def is_user_available(
+        db: Session,
+        user_id: int,
+        meeting_start: datetime,
+        meeting_end: datetime,
+    ):
+        day = meeting_start.strftime("%A")
+
+        availability = (
+            AvailabilityRepository.get_by_user_and_day(
+                db,
+                user_id,
+                day,
+            )
+        )
+
+        if availability is None:
+            return False
+
+        return (
+            availability.start_time <= meeting_start.time()
+            and availability.end_time >= meeting_end.time()
+        )

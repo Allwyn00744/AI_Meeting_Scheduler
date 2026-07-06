@@ -22,6 +22,8 @@ class UserResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class PasswordUpdate(BaseModel):
+    password: str
 
 class LoginRequest(BaseModel):
     email: EmailStr

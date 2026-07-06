@@ -7,7 +7,9 @@ from app.models.user import User
 from app.schemas.scheduler import (
     ScheduleMeetingRequest,
     ScheduleMeetingResponse,
+    SuggestSlotsResponse,
 )
+
 from app.services.scheduler_service import SchedulerService
 
 router = APIRouter(
@@ -27,6 +29,20 @@ def schedule_meeting(
     current_user: User = Depends(get_current_user),
 ):
     return SchedulerService.schedule_meeting(
+        db,
+        meeting,
+        current_user,
+    )
+@router.post(
+    "/suggest-slots",
+    response_model=SuggestSlotsResponse,
+)
+def suggest_slots(
+    meeting: ScheduleMeetingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return SchedulerService.suggest_slots(
         db,
         meeting,
         current_user,

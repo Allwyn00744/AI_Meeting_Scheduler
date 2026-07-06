@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
+from app.auth.hashing import hash_password
+   
 from app.schemas.user import UserCreate, UserUpdate
 from app.repositories.user_repository import UserRepository
 
@@ -60,6 +62,23 @@ class UserService:
                 )
 
         return UserRepository.update_user(db, user_id, user)
+    @staticmethod
+    def update_password(
+        db: Session,
+        user_id: int,
+        password: str,
+    ):
+        user = UserRepository.get_user_by_id(db, user_id)
+
+        if user is None:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found",
+            )
+
+        user.hashed_password = hash_password(password)
+
+        return UserRepository.update(db, user)
 
     @staticmethod
     def delete_user(db: Session, user_id: int):
