@@ -9,7 +9,7 @@ from app.calendar.google_calendar import GoogleCalendarAPI
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
-from datetime import datetime, timezone
+from datetime import timezone
 
 
 class GoogleCalendarService:
@@ -179,27 +179,39 @@ class GoogleCalendarService:
         db: Session,
         credential: GoogleCredential,
     ):
-            credentials = Credentials(
-                token=credential.access_token,
-                refresh_token=credential.refresh_token,
-                token_uri=credential.token_uri,
-                client_id=settings.GOOGLE_CLIENT_ID,
-                client_secret=settings.GOOGLE_CLIENT_SECRET,
-                scopes=credential.scopes.split(","),
+        expiry = credential.expiry
+
+        # Google auth expects expiry as naive UTC datetime
+        if expiry is not None and expiry.tzinfo is not None:
+            expiry = (
+                expiry
+                .astimezone(timezone.utc)
+                .replace(tzinfo=None)
             )
 
-            if (
-                credentials.expired
-                and credentials.refresh_token
-            ):
-                credentials.refresh(Request())
+        credentials = Credentials(
+            token=credential.access_token,
+            refresh_token=credential.refresh_token,
+            token_uri=credential.token_uri,
+            client_id=settings.GOOGLE_CLIENT_ID,
+            client_secret=settings.GOOGLE_CLIENT_SECRET,
+            scopes=credential.scopes.split(","),
+            expiry=expiry,
+        )
 
-                credential.access_token = credentials.token
-                credential.expiry = credentials.expiry
+        if credentials.expired and credentials.refresh_token:
+            credentials.refresh(Request())
 
-                GoogleCredentialRepository.update(
-                    db,
-                    credential,
-                )
+            credential.access_token = credentials.token
 
-            return credential
+            # Convert Google's naive UTC expiry back to aware UTC
+            credential.expiry = credentials.expiry.replace(
+                tzinfo=timezone.utc
+            )
+
+            credential = GoogleCredentialRepository.update(
+                db,
+                credential,
+            )
+
+        return credential
