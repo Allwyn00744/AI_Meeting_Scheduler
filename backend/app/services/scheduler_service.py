@@ -187,6 +187,8 @@ class SchedulerService:
                 )
                 db_meeting.google_event_id = event.get("id")
                 db_meeting.google_event_link = event.get("htmlLink")
+                db_meeting.google_meet_link = event.get("hangoutLink")
+
 
                 db.commit()
                 db.refresh(db_meeting)
@@ -195,6 +197,7 @@ class SchedulerService:
                 print("Google Calendar Event Created Successfully")
                 print(f"Event ID   : {event.get('id')}")
                 print(f"Event Link : {event.get('htmlLink')}")
+                print(f"Meet Link  : {event.get('hangoutLink')}")
                 print("=" * 50)
 
             except Exception:

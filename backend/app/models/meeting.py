@@ -48,6 +48,10 @@ class Meeting(Base):
         String(255),
         nullable=True,
     )
+    google_meet_link: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
 
     google_event_link: Mapped[str | None] = mapped_column(
         String(500),

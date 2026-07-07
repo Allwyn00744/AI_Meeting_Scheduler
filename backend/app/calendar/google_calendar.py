@@ -1,3 +1,4 @@
+import uuid
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
@@ -49,6 +50,14 @@ class GoogleCalendarAPI:
             "end": {
                 "dateTime": end_time.isoformat(),
             },
+            "conferenceData": {
+                "createRequest": {
+                    "requestId": str(uuid.uuid4()),
+                    "conferenceSolutionKey": {
+                        "type": "hangoutsMeet",
+                    },
+                }
+            },
         }
 
         created_event = (
@@ -56,6 +65,7 @@ class GoogleCalendarAPI:
             .insert(
                 calendarId="primary",
                 body=event,
+                conferenceDataVersion=1,
             )
             .execute()
         )
