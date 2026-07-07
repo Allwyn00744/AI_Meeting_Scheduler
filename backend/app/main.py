@@ -9,6 +9,8 @@ from app.api.scheduler_routes import router as scheduler_router
 from app.api.email_routes import router as email_router
 from app.api.google_routes import router as google_router
 
+from app.core.exception_handlers import global_exception_handler
+
 app = FastAPI(
     title="AI Meeting Scheduler API",
     version="1.0.0"
@@ -21,6 +23,12 @@ def root():
         "message": "Welcome to AI Meeting Scheduler API"
     }
 
+
+
+app.add_exception_handler(
+    Exception,
+    global_exception_handler,
+)
 # Register User Routes
 app.include_router(user_router)
 app.include_router(auth_router)
