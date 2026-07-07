@@ -20,12 +20,12 @@ class MeetingParticipant(Base):
     )
 
     meeting_id: Mapped[int] = mapped_column(
-        ForeignKey("meetings.id"),
+        ForeignKey("meetings.id", ondelete="CASCADE"),
         nullable=False,
     )
 
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id"),
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
 

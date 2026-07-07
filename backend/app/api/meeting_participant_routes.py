@@ -49,6 +49,7 @@ def get_participants(
     return MeetingParticipantService.get_participants(
         db,
         meeting_id,
+        current_user,
     )
 
 

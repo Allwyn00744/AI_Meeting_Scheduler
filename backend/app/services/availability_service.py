@@ -80,11 +80,17 @@ class AvailabilityService:
             exclude_unset=True
         )
 
-        if (
-            "start_time" in update_data
-            and "end_time" in update_data
-            and update_data["start_time"] >= update_data["end_time"]
-        ):
+        # Resolve the effective start/end (existing value unless
+        # this update replaces it) so a partial update can't leave
+        # start >= end without being caught.
+        effective_start = update_data.get(
+            "start_time", availability.start_time
+        )
+        effective_end = update_data.get(
+            "end_time", availability.end_time
+        )
+
+        if effective_start >= effective_end:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Start time must be before end time",
@@ -129,6 +135,7 @@ class AvailabilityService:
         return {
             "message": "Availability deleted successfully"
         }
+
     @staticmethod
     def is_user_available(
         db: Session,
@@ -136,6 +143,18 @@ class AvailabilityService:
         meeting_start: datetime,
         meeting_end: datetime,
     ):
+        # The Availability model only stores a single time-of-day
+        # window per day of week (e.g. "Monday 09:00-17:00"). A
+        # meeting that spans across midnight, or across more than one
+        # calendar day, cannot be correctly evaluated against a
+        # single day's window - comparing only the .time() components
+        # would silently compare the wrong things (e.g. a 23:00-01:00
+        # meeting would compare 23:00/01:00 against a daytime window
+        # and could pass or fail for the wrong reason). Treat any such
+        # meeting as unavailable rather than risk a wrong answer.
+        if meeting_start.date() != meeting_end.date():
+            return False
+
         day = meeting_start.strftime("%A")
 
         availability = (

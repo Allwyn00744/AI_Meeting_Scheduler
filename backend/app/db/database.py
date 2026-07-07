@@ -10,7 +10,7 @@ class Base(DeclarativeBase):
 
 engine = create_engine(
     settings.DATABASE_URL,
-    echo=True,
+    echo=settings.SQLALCHEMY_ECHO,
 )
 
 SessionLocal = sessionmaker(

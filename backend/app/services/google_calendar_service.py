@@ -9,6 +9,8 @@ from app.calendar.google_calendar import GoogleCalendarAPI
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError, TransportError
+from googleapiclient.errors import HttpError
 from datetime import timezone
 
 import logging
@@ -54,6 +56,7 @@ class GoogleCalendarService:
             db,
             credential,
         )
+
     @staticmethod
     def update_google_calendar_event(
         db: Session,
@@ -88,22 +91,35 @@ class GoogleCalendarService:
                 detail="Google event not found.",
             )
 
-        event = GoogleCalendarAPI.update_calendar_event(
-            credential=credential,
-            event_id=meeting.google_event_id,
-            title=meeting.title,
-            description=meeting.description or "",
-            start_time=meeting.start_time,
-            end_time=meeting.end_time,
-            location=meeting.location,
-        )
-       
+        try:
+            event = GoogleCalendarAPI.update_calendar_event(
+                credential=credential,
+                event_id=meeting.google_event_id,
+                title=meeting.title,
+                description=meeting.description or "",
+                start_time=meeting.start_time,
+                end_time=meeting.end_time,
+                location=meeting.location,
+            )
+        except HttpError as exc:
+            logger.warning(
+                "Google Calendar update_calendar_event failed. "
+                "meeting_id=%s status=%s",
+                meeting.id,
+                getattr(exc, "status_code", "unknown"),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to update the event on Google Calendar.",
+            )
+
         logger.info(
             "Google Calendar event updated. meeting_id=%s event_id=%s",
             meeting.id,
             meeting.google_event_id,
         )
         return event
+
     @staticmethod
     def create_google_calendar_event(
         db: Session,
@@ -137,14 +153,27 @@ class GoogleCalendarService:
                 detail="Google account not connected.",
             )
 
-        event = GoogleCalendarAPI.create_calendar_event(
-            credential=credential,
-            title=title,
-            description=description,
-            start_time=start_time,
-            end_time=end_time,
-            location=location,
-        )
+        try:
+            event = GoogleCalendarAPI.create_calendar_event(
+                credential=credential,
+                title=title,
+                description=description,
+                start_time=start_time,
+                end_time=end_time,
+                location=location,
+            )
+        except HttpError as exc:
+            logger.warning(
+                "Google Calendar create_calendar_event failed. "
+                "user_id=%s status=%s",
+                user_id,
+                getattr(exc, "status_code", "unknown"),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to create the event on Google Calendar.",
+            )
+
         logger.info(
             "Google Calendar event created. user_id=%s event_id=%s",
             user_id,
@@ -152,6 +181,7 @@ class GoogleCalendarService:
         )
 
         return event
+
     @staticmethod
     def delete_google_calendar_event(
         db: Session,
@@ -183,10 +213,37 @@ class GoogleCalendarService:
         if not meeting.google_event_id:
             return
 
-        GoogleCalendarAPI.delete_calendar_event(
-            credential=credential,
-            event_id=meeting.google_event_id,
-        )
+        try:
+            GoogleCalendarAPI.delete_calendar_event(
+                credential=credential,
+                event_id=meeting.google_event_id,
+            )
+        except HttpError as exc:
+            status_code = getattr(exc, "status_code", None)
+
+            # Already gone on Google's side (e.g. deleted manually by
+            # the user in their calendar) - treat as success rather
+            # than blocking our own deletion on a stale reference.
+            if status_code == 410 or status_code == 404:
+                logger.info(
+                    "Google Calendar event already absent. "
+                    "meeting_id=%s event_id=%s",
+                    meeting.id,
+                    meeting.google_event_id,
+                )
+                return
+
+            logger.warning(
+                "Google Calendar delete_calendar_event failed. "
+                "meeting_id=%s status=%s",
+                meeting.id,
+                status_code,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to delete the event on Google Calendar.",
+            )
+
         logger.info(
             "Google Calendar event deleted. meeting_id=%s event_id=%s",
             meeting.id,
@@ -223,7 +280,27 @@ class GoogleCalendarService:
                 credential.user_id,
             )
 
-            credentials.refresh(Request())
+            try:
+                credentials.refresh(Request())
+            except (RefreshError, TransportError):
+                # Never log the exception object directly here - the
+                # underlying library can include request/response
+                # details in its message. A refresh failure almost
+                # always means the user revoked access or the refresh
+                # token is no longer valid, so surface a clean,
+                # actionable error instead.
+                logger.warning(
+                    "Google OAuth token refresh failed. user_id=%s",
+                    credential.user_id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Google account access has expired or been "
+                        "revoked. Please reconnect your Google "
+                        "account."
+                    ),
+                )
 
             credential.access_token = credentials.token
             credential.expiry = credentials.expiry.replace(

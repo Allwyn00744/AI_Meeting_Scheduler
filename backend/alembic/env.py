@@ -4,14 +4,14 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.core.config import settings
-from app.db.database import Base
 
-# Import models so Alembic can detect them
-from app.models.user import User
-from app.models.meeting import Meeting
-from app.models.meeting_participant import MeetingParticipant
-from app.models.availability import Availability
-from app.models.google_credential import GoogleCredential
+# Importing app.db.base pulls in Base plus every model (User, Meeting,
+# MeetingParticipant, Availability, GoogleCredential, GoogleOAuthState)
+# so Alembic autogenerate can see the full current schema. Importing
+# models individually here previously caused new models (e.g.
+# GoogleOAuthState) to be silently invisible to autogenerate whenever
+# someone forgot to add them to this file.
+from app.db.base import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

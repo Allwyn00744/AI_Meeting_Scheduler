@@ -1,23 +1,10 @@
 from sqlalchemy.orm import Session
 
 from app.models.user import User
-from app.schemas.user import UserCreate, UserUpdate
+from app.schemas.user import UserUpdate
 
 
 class UserRepository:
-
-    @staticmethod
-    def create_user(db: Session, user: UserCreate):
-        new_user = User(
-            name=user.name,
-            email=user.email
-        )
-
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-
-        return new_user
 
     @staticmethod
     def get_all_users(db: Session):
@@ -26,6 +13,7 @@ class UserRepository:
     @staticmethod
     def get_user_by_id(db: Session, user_id: int):
         return db.query(User).filter(User.id == user_id).first()
+
     @staticmethod
     def get_users_by_ids(
         db: Session,
@@ -59,13 +47,13 @@ class UserRepository:
         db.refresh(existing_user)
 
         return existing_user
-    
+
     @staticmethod
     def update(db: Session, user: User):
         db.commit()
         db.refresh(user)
         return user
-    
+
     @staticmethod
     def delete_user(db: Session, user_id: int):
 

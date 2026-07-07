@@ -2,6 +2,7 @@ import logging
 from datetime import timedelta
 
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.meeting import Meeting
@@ -29,6 +30,12 @@ from app.services.google_calendar_service import GoogleCalendarService
 
 logger = logging.getLogger(__name__)
 
+# How many consecutive one-hour slots suggest_slots will try before
+# giving up and telling the caller no slot was found, instead of
+# silently returning None (which previously broke the declared
+# response_model whenever the search was exhausted).
+MAX_SLOT_ATTEMPTS = 8
+
 
 class SchedulerService:
     """
@@ -36,19 +43,7 @@ class SchedulerService:
     """
 
     @staticmethod
-    def schedule_meeting(
-        db: Session,
-        meeting: ScheduleMeetingRequest,
-        current_user: User,
-    ):
-        """
-        Schedule a meeting after validating all occurrences.
-        """
-
-        # ---------------------------------------
-        # Step 1: Validate request participants
-        # ---------------------------------------
-
+    def _validate_participants(db: Session, current_user: User, meeting):
         if len(meeting.participant_ids) != len(
             set(meeting.participant_ids)
         ):
@@ -75,9 +70,76 @@ class SchedulerService:
                     detail=f"User with ID {user_id} does not exist.",
                 )
 
+    @staticmethod
+    def _cleanup_created_occurrences(
+        db: Session,
+        created_meeting_ids: list[int],
+    ):
+        """
+        Best-effort compensation for a recurring-series request that
+        fails partway through creating its occurrences. Deletes any
+        meetings already created in this batch (participant rows are
+        removed automatically via ON DELETE CASCADE) and attempts to
+        remove their Google Calendar events too, so a failed request
+        doesn't leave a silent partial series behind.
+
+        This is a compensating cleanup, not a database transaction:
+        PostgreSQL and Google Calendar are two separate systems and
+        this method does not make the overall operation atomic across
+        both.
+        """
+        for meeting_id in created_meeting_ids:
+            meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+            if meeting is None:
+                continue
+
+            if meeting.google_event_id:
+                try:
+                    GoogleCalendarService.delete_google_calendar_event(
+                        db=db,
+                        meeting=meeting,
+                    )
+                except HTTPException:
+                    logger.warning(
+                        "Cleanup: failed to delete Google Calendar "
+                        "event for meeting_id=%s during rollback of "
+                        "a failed recurring series.",
+                        meeting_id,
+                    )
+
+            try:
+                MeetingRepository.delete(db, meeting)
+            except IntegrityError:
+                db.rollback()
+                logger.error(
+                    "Cleanup: failed to delete meeting_id=%s during "
+                    "rollback of a failed recurring series.",
+                    meeting_id,
+                )
+
+    @staticmethod
+    def schedule_meeting(
+        db: Session,
+        meeting: ScheduleMeetingRequest,
+        current_user: User,
+    ):
+        """
+        Schedule a meeting after validating all occurrences.
+        """
+
+        # ---------------------------------------
+        # Step 1: Validate request participants
+        # ---------------------------------------
+
+        SchedulerService._validate_participants(db, current_user, meeting)
+
         # ---------------------------------------
         # Step 2: Determine number of occurrences
         # ---------------------------------------
+        # (schemas.scheduler.ScheduleMeetingRequest already validates
+        # repeat_type and caps occurrences at MAX_OCCURRENCES, so this
+        # only needs to read the already-validated value.)
 
         repeat_count = 1
 
@@ -195,85 +257,115 @@ class SchedulerService:
 
         created_meetings = []
 
-        for meeting_start, meeting_end in occurrences:
+        try:
+            for meeting_start, meeting_end in occurrences:
 
-            db_meeting = Meeting(
-                title=meeting.title,
-                description=meeting.description,
-                start_time=meeting_start,
-                end_time=meeting_end,
-                location=meeting.location,
-                owner_id=current_user.id,
-            )
-
-            db_meeting = MeetingRepository.create(
-                db,
-                db_meeting,
-            )
-
-            participants = []
-
-            for user_id in meeting.participant_ids:
-                participants.append(
-                    MeetingParticipant(
-                        meeting_id=db_meeting.id,
-                        user_id=user_id,
-                        status="Pending",
-                    )
+                db_meeting = Meeting(
+                    title=meeting.title,
+                    description=meeting.description,
+                    start_time=meeting_start,
+                    end_time=meeting_end,
+                    location=meeting.location,
+                    owner_id=current_user.id,
                 )
 
-            if participants:
-                MeetingParticipantRepository.create_many(
+                db_meeting = MeetingRepository.create(
                     db,
-                    participants,
+                    db_meeting,
                 )
 
-            try:
-                event = (
-                    GoogleCalendarService
-                    .create_google_calendar_event(
-                        db=db,
-                        user_id=current_user.id,
-                        title=db_meeting.title,
-                        description=db_meeting.description or "",
-                        start_time=db_meeting.start_time,
-                        end_time=db_meeting.end_time,
-                        location=db_meeting.location,
+                participants = []
+
+                for user_id in meeting.participant_ids:
+                    participants.append(
+                        MeetingParticipant(
+                            meeting_id=db_meeting.id,
+                            user_id=user_id,
+                            status="Pending",
+                        )
                     )
-                )
 
-                db_meeting.google_event_id = event.get("id")
-                db_meeting.google_event_link = event.get(
-                    "htmlLink"
-                )
-                db_meeting.google_meet_link = event.get(
-                    "hangoutLink"
-                )
+                if participants:
+                    MeetingParticipantRepository.create_many(
+                        db,
+                        participants,
+                    )
 
-                db.commit()
-                db.refresh(db_meeting)
+                created_meetings.append(db_meeting.id)
 
-                logger.info(
-                    "Google Calendar event created successfully. "
-                    "meeting_id=%s google_event_id=%s "
-                    "meet_link_created=%s",
-                    db_meeting.id,
-                    event.get("id"),
-                    event.get("hangoutLink") is not None,
-                )
+                # Google Calendar sync is a best-effort side effect,
+                # deliberately isolated from the database transaction
+                # above: PostgreSQL and Google Calendar are two
+                # separate systems with no distributed transaction
+                # between them. A Calendar failure here does not
+                # cause the meeting occurrence itself to be rolled
+                # back or the series to be aborted.
+                try:
+                    event = (
+                        GoogleCalendarService
+                        .create_google_calendar_event(
+                            db=db,
+                            user_id=current_user.id,
+                            title=db_meeting.title,
+                            description=db_meeting.description or "",
+                            start_time=db_meeting.start_time,
+                            end_time=db_meeting.end_time,
+                            location=db_meeting.location,
+                        )
+                    )
 
-            except Exception:
-                logger.exception(
-                    "Google Calendar integration failed. "
-                    "meeting_id=%s",
-                    db_meeting.id,
-                )
+                    db_meeting.google_event_id = event.get("id")
+                    db_meeting.google_event_link = event.get(
+                        "htmlLink"
+                    )
+                    db_meeting.google_meet_link = event.get(
+                        "hangoutLink"
+                    )
 
-            created_meetings.append(db_meeting.id)
+                    db.commit()
+                    db.refresh(db_meeting)
+
+                    logger.info(
+                        "Google Calendar event created successfully. "
+                        "meeting_id=%s meet_link_created=%s",
+                        db_meeting.id,
+                        event.get("hangoutLink") is not None,
+                    )
+
+                except Exception:
+                    logger.exception(
+                        "Google Calendar integration failed. "
+                        "meeting_id=%s",
+                        db_meeting.id,
+                    )
+
+        except IntegrityError:
+            db.rollback()
+            logger.error(
+                "Recurring meeting series creation failed partway "
+                "through. Rolling back %s already-created "
+                "occurrence(s).",
+                len(created_meetings),
+            )
+            SchedulerService._cleanup_created_occurrences(
+                db,
+                created_meetings,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Failed to create the recurring meeting series "
+                    "due to a database conflict. No occurrences were "
+                    "kept - please try again."
+                ),
+            )
 
         # ---------------------------------------
         # Step 6: Send participant invitations
         # ---------------------------------------
+        # Best-effort: an email/SMTP failure here must not turn an
+        # already-successful scheduling request into a 500 response,
+        # since the meeting(s) are already committed at this point.
 
         if meeting.participant_ids:
 
@@ -286,7 +378,7 @@ class SchedulerService:
 
             for participant in participant_users:
 
-                EmailService.send_meeting_invitation(
+                EmailService.try_send_meeting_invitation(
                     to_email=participant.email,
                     meeting_title=meeting.title,
                     start_time=meeting.start_time,
@@ -306,14 +398,19 @@ class SchedulerService:
         current_user: User,
     ):
         """
-        Suggest the first available meeting slot.
+        Suggest the first available meeting slot, checking both
+        conflicts and declared working-hours availability for the
+        owner and every participant. Raises a 404 (rather than
+        silently returning None) if no slot is found within the
+        search window.
         """
+
+        SchedulerService._validate_participants(db, current_user, meeting)
 
         suggested_start = meeting.start_time
         suggested_end = meeting.end_time
 
-        # Try up to the next 8 one-hour slots
-        for _ in range(8):
+        for _ in range(MAX_SLOT_ATTEMPTS):
 
             owner_meetings = (
                 MeetingRepository.get_meetings_between(
@@ -324,12 +421,19 @@ class SchedulerService:
                 )
             )
 
-            if owner_meetings:
+            owner_available = AvailabilityService.is_user_available(
+                db,
+                current_user.id,
+                suggested_start,
+                suggested_end,
+            )
+
+            if owner_meetings or not owner_available:
                 suggested_start += timedelta(hours=1)
                 suggested_end += timedelta(hours=1)
                 continue
 
-            participant_busy = False
+            participant_blocked = False
 
             for participant_id in meeting.participant_ids:
 
@@ -342,11 +446,20 @@ class SchedulerService:
                     )
                 )
 
-                if participant_meetings:
-                    participant_busy = True
+                participant_available = (
+                    AvailabilityService.is_user_available(
+                        db,
+                        participant_id,
+                        suggested_start,
+                        suggested_end,
+                    )
+                )
+
+                if participant_meetings or not participant_available:
+                    participant_blocked = True
                     break
 
-            if participant_busy:
+            if participant_blocked:
                 suggested_start += timedelta(hours=1)
                 suggested_end += timedelta(hours=1)
                 continue
@@ -359,6 +472,14 @@ class SchedulerService:
                     )
                 ]
             )
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "No available slot found for the owner and all "
+                "participants within the searched window."
+            ),
+        )
 
     @staticmethod
     def update_meeting(

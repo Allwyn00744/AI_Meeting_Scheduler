@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends,Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from datetime import date
 
 from app.auth.dependencies import get_current_user
+from app.core.config import settings
 from app.db.database import get_db
 from app.models.user import User
 from app.schemas.meeting import (
@@ -40,17 +41,28 @@ def create_meeting(
     response_model=list[MeetingResponse],
 )
 def get_my_meetings(
+    limit: int | None = Query(
+        default=None, ge=1, le=settings.MAX_PAGE_SIZE
+    ),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     return MeetingService.get_my_meetings(
         db,
         current_user,
+        limit=limit,
+        offset=offset,
     )
+
 
 @router.get("/search")
 def search_meetings(
     keyword: str = Query(...),
+    limit: int | None = Query(
+        default=None, ge=1, le=settings.MAX_PAGE_SIZE
+    ),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -58,11 +70,18 @@ def search_meetings(
         db,
         keyword,
         current_user,
+        limit=limit,
+        offset=offset,
     )
+
 
 @router.get("/filter/status")
 def filter_by_status(
     status: str = Query(...),
+    limit: int | None = Query(
+        default=None, ge=1, le=settings.MAX_PAGE_SIZE
+    ),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -70,6 +89,8 @@ def filter_by_status(
         db,
         status,
         current_user,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -104,9 +125,15 @@ def delete_meeting(
         meeting_id,
         current_user,
     )
+
+
 @router.get("/filter/date")
 def filter_by_date(
     meeting_date: date = Query(...),
+    limit: int | None = Query(
+        default=None, ge=1, le=settings.MAX_PAGE_SIZE
+    ),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -114,11 +141,19 @@ def filter_by_date(
         db,
         meeting_date,
         current_user,
+        limit=limit,
+        offset=offset,
     )
+
+
 @router.get("/filter/range")
 def filter_by_date_range(
     start_date: date = Query(...),
     end_date: date = Query(...),
+    limit: int | None = Query(
+        default=None, ge=1, le=settings.MAX_PAGE_SIZE
+    ),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -127,4 +162,6 @@ def filter_by_date_range(
         start_date,
         end_date,
         current_user,
+        limit=limit,
+        offset=offset,
     )

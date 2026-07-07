@@ -7,6 +7,7 @@ from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.meeting_participant_repository import (
     MeetingParticipantRepository,
 )
+from app.repositories.user_repository import UserRepository
 from app.schemas.meeting_participant import (
     ParticipantCreate,
     ParticipantUpdate,
@@ -36,6 +37,26 @@ class MeetingParticipantService:
                 detail="Only the meeting owner can invite participants",
             )
 
+        participant_user = UserRepository.get_user_by_id(
+            db,
+            participant.user_id,
+        )
+
+        if participant_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    f"User with ID {participant.user_id} does not "
+                    f"exist."
+                ),
+            )
+
+        if participant.user_id == meeting.owner_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The meeting owner cannot be added as a participant",
+            )
+
         existing = MeetingParticipantRepository.get_by_meeting_and_user(
             db,
             meeting_id,
@@ -59,7 +80,33 @@ class MeetingParticipantService:
     def get_participants(
         db: Session,
         meeting_id: int,
+        current_user: User,
     ):
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        is_owner = meeting.owner_id == current_user.id
+
+        is_participant = MeetingParticipantRepository.get_by_meeting_and_user(
+            db,
+            meeting_id,
+            current_user.id,
+        ) is not None
+
+        if not is_owner and not is_participant:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "You must be the meeting owner or a participant "
+                    "to view this list."
+                ),
+            )
+
         return MeetingParticipantRepository.get_by_meeting(
             db,
             meeting_id,

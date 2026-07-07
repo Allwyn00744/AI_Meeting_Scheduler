@@ -1,4 +1,5 @@
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from datetime import date
 
@@ -8,7 +9,7 @@ from app.repositories.meeting_repository import MeetingRepository
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
 from app.services.conflict_service import ConflictService
 from app.services.google_calendar_service import GoogleCalendarService
-from app.services.google_calendar_service import GoogleCalendarService
+
 
 class MeetingService:
 
@@ -56,8 +57,15 @@ class MeetingService:
     def get_my_meetings(
         db: Session,
         current_user: User,
+        limit: int | None = None,
+        offset: int = 0,
     ):
-        return MeetingRepository.get_all(db, current_user.id)
+        return MeetingRepository.get_all(
+            db,
+            current_user.id,
+            limit=limit,
+            offset=offset,
+        )
 
     @staticmethod
     def update_meeting(
@@ -119,32 +127,54 @@ class MeetingService:
                 detail="Not authorized",
             )
 
-        # Delete Google Calendar event first
+        # Delete Google Calendar event first. Note: this is a
+        # best-effort side effect, not part of the same atomic
+        # transaction as the database delete below - Google Calendar
+        # and PostgreSQL are two separate systems with no distributed
+        # transaction between them.
         if meeting.google_event_id:
             GoogleCalendarService.delete_google_calendar_event(
                 db=db,
                 meeting=meeting,
             )
 
-        # Delete meeting from database
-        MeetingRepository.delete(
-            db,
-            meeting,
-        )
+        # Delete meeting from database. Participant rows are removed
+        # automatically at the database level (ON DELETE CASCADE on
+        # meeting_participants.meeting_id), so no manual participant
+        # cleanup is needed here.
+        try:
+            MeetingRepository.delete(
+                db,
+                meeting,
+            )
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Unable to delete meeting due to related "
+                    "records. Please try again or contact support."
+                ),
+            )
 
         return {
             "message": "Meeting deleted successfully"
         }
+
     @staticmethod
     def search_meetings(
         db: Session,
         keyword: str,
         current_user: User,
+        limit: int | None = None,
+        offset: int = 0,
     ):
         return MeetingRepository.search_meetings(
             db,
             current_user.id,
             keyword,
+            limit=limit,
+            offset=offset,
         )
 
     @staticmethod
@@ -152,33 +182,47 @@ class MeetingService:
         db: Session,
         status: str,
         current_user: User,
+        limit: int | None = None,
+        offset: int = 0,
     ):
         return MeetingRepository.filter_by_status(
             db,
             current_user.id,
             status,
+            limit=limit,
+            offset=offset,
         )
+
     @staticmethod
     def filter_by_date(
         db: Session,
         meeting_date: date,
         current_user: User,
+        limit: int | None = None,
+        offset: int = 0,
     ):
         return MeetingRepository.filter_by_date(
             db,
             current_user.id,
             meeting_date,
+            limit=limit,
+            offset=offset,
         )
+
     @staticmethod
     def filter_by_date_range(
         db: Session,
         start_date: date,
         end_date: date,
         current_user: User,
+        limit: int | None = None,
+        offset: int = 0,
     ):
         return MeetingRepository.filter_by_date_range(
             db,
             current_user.id,
             start_date,
             end_date,
+            limit=limit,
+            offset=offset,
         )

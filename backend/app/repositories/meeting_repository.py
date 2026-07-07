@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import or_,func
+from sqlalchemy import or_, func
 from datetime import date
 
 
@@ -16,12 +16,22 @@ class MeetingRepository:
         return meeting
 
     @staticmethod
-    def get_all(db: Session, owner_id: int):
-        return (
+    def get_all(
+        db: Session,
+        owner_id: int,
+        limit: int | None = None,
+        offset: int = 0,
+    ):
+        query = (
             db.query(Meeting)
             .filter(Meeting.owner_id == owner_id)
-            .all()
+            .order_by(Meeting.start_time.desc())
         )
+
+        if limit is not None:
+            query = query.offset(offset).limit(limit)
+
+        return query.all()
 
     @staticmethod
     def get_by_id(db: Session, meeting_id: int):
@@ -47,19 +57,27 @@ class MeetingRepository:
         db: Session,
         owner_id: int,
     ):
+        """
+        Returns the complete, unpaginated set of meetings owned by a
+        user. Used for conflict/availability checks, which must see
+        every meeting to be correct — this method must never be
+        paginated.
+        """
         return (
             db.query(Meeting)
             .filter(Meeting.owner_id == owner_id)
             .all()
         )
-    
+
     @staticmethod
     def search_meetings(
         db: Session,
         owner_id: int,
         keyword: str,
+        limit: int | None = None,
+        offset: int = 0,
     ):
-        return (
+        query = (
             db.query(Meeting)
             .filter(
                 Meeting.owner_id == owner_id,
@@ -68,55 +86,82 @@ class MeetingRepository:
                     Meeting.description.ilike(f"%{keyword}%"),
                 ),
             )
-            .all()
+            .order_by(Meeting.start_time.desc())
         )
-    
+
+        if limit is not None:
+            query = query.offset(offset).limit(limit)
+
+        return query.all()
+
     @staticmethod
     def filter_by_status(
         db: Session,
         owner_id: int,
         status: str,
+        limit: int | None = None,
+        offset: int = 0,
     ):
-        return (
+        query = (
             db.query(Meeting)
             .filter(
                 Meeting.owner_id == owner_id,
                 Meeting.status == status,
             )
-            .all()
+            .order_by(Meeting.start_time.desc())
         )
-    
+
+        if limit is not None:
+            query = query.offset(offset).limit(limit)
+
+        return query.all()
+
     @staticmethod
     def filter_by_date(
         db: Session,
         owner_id: int,
         meeting_date: date,
+        limit: int | None = None,
+        offset: int = 0,
     ):
-        return (
+        query = (
             db.query(Meeting)
             .filter(
                 Meeting.owner_id == owner_id,
                 func.date(Meeting.start_time) == meeting_date,
             )
-            .all()
+            .order_by(Meeting.start_time.desc())
         )
-    
+
+        if limit is not None:
+            query = query.offset(offset).limit(limit)
+
+        return query.all()
+
     @staticmethod
     def filter_by_date_range(
         db: Session,
         owner_id: int,
         start_date: date,
         end_date: date,
+        limit: int | None = None,
+        offset: int = 0,
     ):
-        return (
+        query = (
             db.query(Meeting)
             .filter(
                 Meeting.owner_id == owner_id,
                 func.date(Meeting.start_time) >= start_date,
                 func.date(Meeting.start_time) <= end_date,
             )
-            .all()
+            .order_by(Meeting.start_time.desc())
         )
+
+        if limit is not None:
+            query = query.offset(offset).limit(limit)
+
+        return query.all()
+
     @staticmethod
     def get_meetings_between(
         db: Session,
@@ -124,6 +169,10 @@ class MeetingRepository:
         start_time,
         end_time,
     ):
+        """
+        Used for conflict detection during scheduling/suggestion —
+        must never be paginated.
+        """
         return (
             db.query(Meeting)
             .filter(
@@ -133,22 +182,3 @@ class MeetingRepository:
             )
             .all()
         )
-    @staticmethod
-    def get_by_id(
-        db: Session,
-        meeting_id: int,
-    ):
-        return (
-            db.query(Meeting)
-            .filter(Meeting.id == meeting_id)
-            .first()
-            )
-    @staticmethod
-    def update(
-        db: Session,
-        meeting: Meeting,
-    ):
-        db.commit()
-        db.refresh(meeting)
-        return meeting
-    
