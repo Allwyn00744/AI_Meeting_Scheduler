@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str
     GOOGLE_REDIRECT_URI: str
 
+    # JWT
+    SECRET_KEY: str = "9xxsdIpdEEEgivQDmXEqhD9xDHc9On3OUY1mlXE5UPqpt_IopV1r-tUJGSaTG5BVuneu0Pmdkf-vjusgo3vAew"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
