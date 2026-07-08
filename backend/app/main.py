@@ -10,6 +10,7 @@ from app.api.availability_routes import router as availability_router
 from app.api.scheduler_routes import router as scheduler_router
 from app.api.email_routes import router as email_router
 from app.api.google_routes import router as google_router
+from app.api.ai_routes import router as ai_router
 
 from app.core.config import settings
 from app.core.exception_handlers import (
@@ -63,3 +64,4 @@ app.include_router(availability_router)
 app.include_router(scheduler_router)
 app.include_router(email_router)
 app.include_router(google_router)
+app.include_router(ai_router)

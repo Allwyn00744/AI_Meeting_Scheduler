@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,6 +54,12 @@ class Settings(BaseSettings):
     DEFAULT_PAGE_SIZE: int = 50
     MAX_PAGE_SIZE: int = 200
 
+    # Gemini AI
+    # Optional: AI endpoints return 503 when absent or blank.
+    # Obtain a key from https://aistudio.google.com/apikey
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
@@ -66,6 +76,11 @@ class Settings(BaseSettings):
         # this app always sends credentials (Authorization headers),
         # and a wildcard origin must never be combined with that.
         return [origin for origin in origins if origin != "*"]
+
+    @property
+    def gemini_api_key_configured(self) -> bool:
+        """True only when GEMINI_API_KEY is set and non-blank."""
+        return bool(self.GEMINI_API_KEY and self.GEMINI_API_KEY.strip())
 
 
 settings = Settings()
