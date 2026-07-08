@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
@@ -46,4 +46,22 @@ def suggest_slots(
         db,
         meeting,
         current_user,
+    )
+
+
+@router.get(
+    "/meetings/{meeting_id}/reschedule-suggestions",
+    response_model=SuggestSlotsResponse,
+)
+def suggest_reschedule_slots(
+    meeting_id: int,
+    window_days: int = Query(default=7, ge=1, le=30),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return SchedulerService.suggest_reschedule_slots(
+        db,
+        meeting_id,
+        current_user,
+        window_days=window_days,
     )

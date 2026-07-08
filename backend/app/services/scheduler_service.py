@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 # response_model whenever the search was exhausted).
 MAX_SLOT_ATTEMPTS = 8
 
+# suggest_reschedule_slots: fixed candidate step, default search
+# window, and cap on how many suggestions are returned.
+RESCHEDULE_SEARCH_INTERVAL_MINUTES = 15
+DEFAULT_RESCHEDULE_WINDOW_DAYS = 7
+MAX_RESCHEDULE_SUGGESTIONS = 5
+
 
 class SchedulerService:
     """
@@ -480,6 +486,152 @@ class SchedulerService:
                 "participants within the searched window."
             ),
         )
+
+    @staticmethod
+    def suggest_reschedule_slots(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+        window_days: int = DEFAULT_RESCHEDULE_WINDOW_DAYS,
+    ):
+        """
+        Suggest up to MAX_RESCHEDULE_SUGGESTIONS alternative slots for
+        an existing meeting, searching in fixed
+        RESCHEDULE_SEARCH_INTERVAL_MINUTES increments across
+        `window_days` days starting from the meeting's own
+        start_time. The meeting's own duration is preserved for every
+        candidate.
+
+        Read-only: this never modifies the meeting, its participants,
+        or any external system (Google Calendar/Meet, email) - it
+        only returns candidate slots for the caller to act on.
+        Raises 404 if no valid slot is found anywhere in the window.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found.",
+            )
+
+        is_owner = meeting.owner_id == current_user.id
+        is_participant = (
+            MeetingParticipantRepository.get_by_meeting_and_user(
+                db,
+                meeting_id,
+                current_user.id,
+            )
+            is not None
+        )
+
+        if not is_owner and not is_participant:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "You must be the meeting owner or a participant "
+                    "to request reschedule suggestions."
+                ),
+            )
+
+        duration = meeting.end_time - meeting.start_time
+
+        participant_ids = [
+            participant.user_id
+            for participant in (
+                MeetingParticipantRepository.get_by_meeting(
+                    db,
+                    meeting_id,
+                )
+            )
+        ]
+
+        search_end = meeting.start_time + timedelta(days=window_days)
+        candidate_start = meeting.start_time
+        step = timedelta(minutes=RESCHEDULE_SEARCH_INTERVAL_MINUTES)
+
+        suggestions = []
+
+        while (
+            candidate_start + duration <= search_end
+            and len(suggestions) < MAX_RESCHEDULE_SUGGESTIONS
+        ):
+            candidate_end = candidate_start + duration
+
+            owner_meetings = [
+                other
+                for other in MeetingRepository.get_meetings_between(
+                    db,
+                    meeting.owner_id,
+                    candidate_start,
+                    candidate_end,
+                )
+                if other.id != meeting_id
+            ]
+
+            owner_available = AvailabilityService.is_user_available(
+                db,
+                meeting.owner_id,
+                candidate_start,
+                candidate_end,
+            )
+
+            if owner_meetings or not owner_available:
+                candidate_start += step
+                continue
+
+            participant_blocked = False
+
+            for participant_id in participant_ids:
+
+                participant_meetings = [
+                    other
+                    for other in MeetingRepository.get_meetings_between(
+                        db,
+                        participant_id,
+                        candidate_start,
+                        candidate_end,
+                    )
+                    if other.id != meeting_id
+                ]
+
+                participant_available = (
+                    AvailabilityService.is_user_available(
+                        db,
+                        participant_id,
+                        candidate_start,
+                        candidate_end,
+                    )
+                )
+
+                if participant_meetings or not participant_available:
+                    participant_blocked = True
+                    break
+
+            if participant_blocked:
+                candidate_start += step
+                continue
+
+            suggestions.append(
+                SuggestedSlot(
+                    start_time=candidate_start,
+                    end_time=candidate_end,
+                )
+            )
+
+            candidate_start += step
+
+        if not suggestions:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    "No available reschedule slot found for the "
+                    "owner and all participants within the searched "
+                    "window."
+                ),
+            )
+
+        return SuggestSlotsResponse(slots=suggestions)
 
     @staticmethod
     def update_meeting(
