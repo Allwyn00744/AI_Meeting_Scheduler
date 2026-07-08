@@ -1,12 +1,14 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.models.availability import Availability
 from app.models.user import User
 from app.repositories.availability_repository import (
     AvailabilityRepository,
 )
+from app.repositories.user_repository import UserRepository
 
 
 from app.schemas.availability import (
@@ -143,19 +145,41 @@ class AvailabilityService:
         meeting_start: datetime,
         meeting_end: datetime,
     ):
-        # The Availability model only stores a single time-of-day
-        # window per day of week (e.g. "Monday 09:00-17:00"). A
-        # meeting that spans across midnight, or across more than one
-        # calendar day, cannot be correctly evaluated against a
-        # single day's window - comparing only the .time() components
-        # would silently compare the wrong things (e.g. a 23:00-01:00
-        # meeting would compare 23:00/01:00 against a daytime window
-        # and could pass or fail for the wrong reason). Treat any such
-        # meeting as unavailable rather than risk a wrong answer.
-        if meeting_start.date() != meeting_end.date():
+        # Meeting datetimes must be timezone-aware.
+        if (
+            meeting_start.tzinfo is None
+            or meeting_start.utcoffset() is None
+            or meeting_end.tzinfo is None
+            or meeting_end.utcoffset() is None
+        ):
             return False
 
-        day = meeting_start.strftime("%A")
+        # Get the user so we can evaluate availability
+        # in that user's local timezone.
+        user = UserRepository.get_user_by_id(
+            db,
+            user_id,
+        )
+
+        if user is None:
+            return False
+
+        try:
+            user_timezone = ZoneInfo(user.timezone)
+        except (ZoneInfoNotFoundError, TypeError, ValueError):
+            return False
+
+        # Convert the absolute meeting times into the
+        # user's local timezone before checking working hours.
+        local_start = meeting_start.astimezone(user_timezone)
+        local_end = meeting_end.astimezone(user_timezone)
+
+        # Availability currently supports only meetings
+        # contained within one local calendar day.
+        if local_start.date() != local_end.date():
+            return False
+
+        day = local_start.strftime("%A")
 
         availability = (
             AvailabilityRepository.get_by_user_and_day(
@@ -168,7 +192,14 @@ class AvailabilityService:
         if availability is None:
             return False
 
+        # Strip timezone information from the local datetime's
+        # time component because availability.start_time and
+        # availability.end_time are PostgreSQL TIME values.
+        local_start_time = local_start.time().replace(tzinfo=None)
+        local_end_time = local_end.time().replace(tzinfo=None)
+
         return (
-            availability.start_time <= meeting_start.time()
-            and availability.end_time >= meeting_end.time()
+            availability.is_available
+            and availability.start_time <= local_start_time
+            and availability.end_time >= local_end_time
         )
