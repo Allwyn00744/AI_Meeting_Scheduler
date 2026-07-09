@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     String,
@@ -7,9 +8,12 @@ from sqlalchemy import (
     ForeignKey,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+
+if TYPE_CHECKING:
+    from app.models.external_meeting_guest import ExternalMeetingGuest
 
 
 class Meeting(Base):
@@ -83,4 +87,18 @@ class Meeting(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
-    
+
+    external_guests: Mapped[list["ExternalMeetingGuest"]] = relationship(
+        "ExternalMeetingGuest",
+        lazy="selectin",
+        # "all" (not True) is required here: lazy="selectin" means this
+        # collection is eagerly loaded on every Meeting query,
+        # including inside MeetingRepository.get_by_id as used by
+        # delete_meeting. With plain passive_deletes=True, SQLAlchemy
+        # still tries to null out already-loaded children's meeting_id
+        # before deleting the parent, which violates the NOT NULL
+        # constraint on external_meeting_guests.meeting_id. "all"
+        # suppresses that nulling regardless of load state and defers
+        # entirely to the database's ON DELETE CASCADE.
+        passive_deletes="all",
+    )

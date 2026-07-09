@@ -5,10 +5,14 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.external_meeting_guest import ExternalMeetingGuest
 from app.models.meeting import Meeting
 from app.models.meeting_participant import MeetingParticipant
 from app.models.user import User
 
+from app.repositories.external_meeting_guest_repository import (
+    ExternalMeetingGuestRepository,
+)
 from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.resource_repository import ResourceRepository
@@ -26,6 +30,7 @@ from app.schemas.scheduler import (
 from app.services.email_service import EmailService
 from app.services.conflict_service import ConflictService
 from app.services.availability_service import AvailabilityService
+from app.services.external_guest_service import ExternalGuestService
 from app.services.google_calendar_service import GoogleCalendarService
 
 
@@ -140,6 +145,30 @@ class SchedulerService:
         # ---------------------------------------
 
         SchedulerService._validate_participants(db, current_user, meeting)
+
+        # ---------------------------------------
+        # Step 1.5: Resolve external guests once
+        # ---------------------------------------
+        # Resolved before the occurrence loop, since the same guest
+        # set applies to every occurrence (mirrors participant_ids).
+        # Participant emails are resolved here only to exclude
+        # collisions - AvailabilityService/ConflictService are never
+        # called with external guest data anywhere in this method.
+
+        participant_users = (
+            UserRepository.get_users_by_ids(
+                db,
+                meeting.participant_ids,
+            )
+            if meeting.participant_ids
+            else []
+        )
+
+        resolved_external_guests = ExternalGuestService.resolve_guests(
+            meeting.external_guest_emails,
+            current_user.email,
+            [user.email for user in participant_users],
+        )
 
         # ---------------------------------------
         # Step 2: Determine number of occurrences
@@ -354,6 +383,18 @@ class SchedulerService:
                         participants,
                     )
 
+                if resolved_external_guests:
+                    ExternalMeetingGuestRepository.create_many(
+                        db,
+                        [
+                            ExternalMeetingGuest(
+                                meeting_id=db_meeting.id,
+                                email=email,
+                            )
+                            for email in resolved_external_guests
+                        ],
+                    )
+
                 created_meetings.append(db_meeting.id)
 
                 # Google Calendar sync is a best-effort side effect,
@@ -374,6 +415,7 @@ class SchedulerService:
                             start_time=db_meeting.start_time,
                             end_time=db_meeting.end_time,
                             location=db_meeting.location,
+                            attendee_emails=resolved_external_guests,
                         )
                     )
 
@@ -448,6 +490,16 @@ class SchedulerService:
                     end_time=meeting.end_time,
                     location=meeting.location,
                 )
+
+        for guest_email in resolved_external_guests:
+
+            EmailService.try_send_meeting_invitation(
+                to_email=guest_email,
+                meeting_title=meeting.title,
+                start_time=meeting.start_time,
+                end_time=meeting.end_time,
+                location=meeting.location,
+            )
 
         return {
             "message": "Meeting(s) scheduled successfully",

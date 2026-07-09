@@ -1,6 +1,11 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+
+from app.schemas.external_guest import (
+    ExternalGuestResponse,
+    normalize_external_guest_emails,
+)
 
 
 class MeetingCreate(BaseModel):
@@ -10,11 +15,19 @@ class MeetingCreate(BaseModel):
     end_time: datetime
     location: str | None = None
     resource_id: int | None = None
+    external_guest_emails: list[EmailStr] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def check_time_order(self):
         if self.end_time <= self.start_time:
             raise ValueError("end_time must be after start_time")
+        return self
+
+    @model_validator(mode="after")
+    def normalize_external_guests(self):
+        self.external_guest_emails = normalize_external_guest_emails(
+            self.external_guest_emails
+        )
         return self
 
 
@@ -47,5 +60,8 @@ class MeetingResponse(BaseModel):
     status: str
     owner_id: int
     resource_id: int | None
+    external_guests: list[ExternalGuestResponse] = Field(
+        default_factory=list
+    )
 
     model_config = ConfigDict(from_attributes=True)
