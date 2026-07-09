@@ -6,6 +6,7 @@ from datetime import date
 from app.models.meeting import Meeting
 from app.models.user import User
 from app.repositories.meeting_repository import MeetingRepository
+from app.repositories.resource_repository import ResourceRepository
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
 from app.services.conflict_service import ConflictService
 from app.services.google_calendar_service import GoogleCalendarService
@@ -41,6 +42,48 @@ class MeetingService:
                 ),
             )
 
+        # Resource booking is optional. When requested, the resource
+        # must exist, be active, and be free for this time range -
+        # validated before the meeting is created.
+        if meeting.resource_id is not None:
+            resource = ResourceRepository.get_by_id(
+                db,
+                meeting.resource_id,
+            )
+
+            if resource is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Resource not found",
+                )
+
+            if not resource.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Resource '{resource.name}' is not active "
+                        f"and cannot be booked."
+                    ),
+                )
+
+            resource_conflict, conflicting_meeting = (
+                ConflictService.check_resource_conflict(
+                    db,
+                    meeting.resource_id,
+                    meeting.start_time,
+                    meeting.end_time,
+                )
+            )
+
+            if resource_conflict:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Resource '{resource.name}' is already "
+                        f"booked for '{conflicting_meeting.title}'."
+                    ),
+                )
+
         # Create the meeting
         db_meeting = Meeting(
             title=meeting.title,
@@ -49,6 +92,7 @@ class MeetingService:
             end_time=meeting.end_time,
             location=meeting.location,
             owner_id=current_user.id,
+            resource_id=meeting.resource_id,
         )
 
         return MeetingRepository.create(db, db_meeting)

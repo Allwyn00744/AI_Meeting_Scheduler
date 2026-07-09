@@ -18,6 +18,7 @@ class ScheduleMeetingRequest(BaseModel):
     start_time: datetime
     end_time: datetime
     location: str | None = None
+    resource_id: int | None = None
 
     participant_ids: list[int]
 

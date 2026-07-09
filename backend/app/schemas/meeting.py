@@ -9,6 +9,7 @@ class MeetingCreate(BaseModel):
     start_time: datetime
     end_time: datetime
     location: str | None = None
+    resource_id: int | None = None
 
     @model_validator(mode="after")
     def check_time_order(self):
@@ -45,5 +46,6 @@ class MeetingResponse(BaseModel):
     location: str | None
     status: str
     owner_id: int
+    resource_id: int | None
 
     model_config = ConfigDict(from_attributes=True)

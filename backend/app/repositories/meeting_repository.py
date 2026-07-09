@@ -182,3 +182,24 @@ class MeetingRepository:
             )
             .all()
         )
+
+    @staticmethod
+    def get_resource_bookings_between(
+        db: Session,
+        resource_id: int,
+        start_time,
+        end_time,
+    ):
+        """
+        Used for resource conflict detection during scheduling — must
+        never be paginated.
+        """
+        return (
+            db.query(Meeting)
+            .filter(
+                Meeting.resource_id == resource_id,
+                Meeting.start_time < end_time,
+                Meeting.end_time > start_time,
+            )
+            .all()
+        )
