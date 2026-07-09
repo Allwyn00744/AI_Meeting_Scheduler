@@ -65,6 +65,11 @@ def summarize_meeting(
     Generate a concise structured summary and extract action items from
     the supplied meeting notes or transcript. The authenticated user
     must be the meeting owner or a registered participant.
+
+    On success, the notes, summary, and action items are persisted
+    (overwriting any prior generation for this meeting) via
+    MeetingIntelligenceService. See GET /meetings/{meeting_id}/notes,
+    /summary, and /action-items to read persisted records afterward.
     """
     return AIMeetingService.summarize_meeting(
         db=db,

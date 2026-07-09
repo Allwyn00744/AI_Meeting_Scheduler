@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Import the authoritative bounds from the existing scheduler schema so
 # that the AI layer never diverges from them.
 from app.schemas.scheduler import MAX_OCCURRENCES, SUPPORTED_REPEAT_TYPES
+from app.schemas.meeting_intelligence import ActionItemResponse
 
 # ---------------------------------------------------------------------------
 # Field-level limits
@@ -176,14 +177,41 @@ class MeetingNotesRequest(BaseModel):
 
 
 class ActionItem(BaseModel):
+    """Raw action item shape as produced directly by Gemini output."""
+
     task: str
     assignee: Optional[str] = None
     due_date: Optional[date] = None
 
 
-class MeetingSummaryResponse(BaseModel):
+class GeneratedMeetingSummary(BaseModel):
+    """
+    Validates Gemini's raw JSON response for the summary endpoint,
+    before persistence. This is intentionally separate from
+    MeetingSummaryResponse, which represents the persisted record
+    (it requires database-assigned fields like id/meeting_id that
+    raw Gemini output does not have).
+    """
+
     summary: str
     action_items: list[ActionItem]
+
+
+class MeetingSummaryResponse(BaseModel):
+    """
+    Persisted meeting summary, returned by both the generation
+    endpoint (POST /ai/meetings/{id}/summary) and the read endpoint
+    (GET /meetings/{id}/summary). `summary` and `action_items[].task/
+    .assignee/.due_date` are the original response fields; the rest
+    are additive persistence metadata.
+    """
+
+    id: int
+    meeting_id: int
+    summary: str
+    action_items: list[ActionItemResponse]
+    created_at: datetime
+    updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
