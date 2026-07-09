@@ -11,6 +11,7 @@ from app.models.user import User
 
 from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.user_repository import UserRepository
+from app.repositories.resource_repository import ResourceRepository
 from app.repositories.meeting_participant_repository import (
     MeetingParticipantRepository,
 )
@@ -178,6 +179,38 @@ class SchedulerService:
             )
 
         # ---------------------------------------
+        # Step 3.5: Validate the resource once
+        # ---------------------------------------
+        # Resource identity does not change across occurrences, so
+        # existence/active-status is checked once here rather than
+        # once per occurrence. Per-occurrence timing conflicts are
+        # still checked separately below, since each occurrence has
+        # its own time range.
+
+        resource = None
+
+        if meeting.resource_id is not None:
+            resource = ResourceRepository.get_by_id(
+                db,
+                meeting.resource_id,
+            )
+
+            if resource is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Resource not found",
+                )
+
+            if not resource.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Resource '{resource.name}' is not active "
+                        f"and cannot be booked."
+                    ),
+                )
+
+        # ---------------------------------------
         # Step 4: Validate ALL occurrences
         # ---------------------------------------
 
@@ -257,6 +290,29 @@ class SchedulerService:
                         ),
                     )
 
+            # Resource conflict (existence/active already validated
+            # once in Step 3.5 above; only the per-occurrence timing
+            # overlap is checked here).
+            if resource is not None:
+                resource_conflict, conflicting_meeting = (
+                    ConflictService.check_resource_conflict(
+                        db,
+                        meeting.resource_id,
+                        meeting_start,
+                        meeting_end,
+                    )
+                )
+
+                if resource_conflict:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Occurrence {index}: resource "
+                            f"'{resource.name}' is already booked "
+                            f"for '{conflicting_meeting.title}'."
+                        ),
+                    )
+
         # ---------------------------------------
         # Step 5: Create only after ALL pass
         # ---------------------------------------
@@ -273,6 +329,7 @@ class SchedulerService:
                     end_time=meeting_end,
                     location=meeting.location,
                     owner_id=current_user.id,
+                    resource_id=meeting.resource_id,
                 )
 
                 db_meeting = MeetingRepository.create(

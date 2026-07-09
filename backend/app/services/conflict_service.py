@@ -46,6 +46,31 @@ class ConflictService:
         )
     
     @staticmethod
+    def check_resource_conflict(
+        db: Session,
+        resource_id: int,
+        start_time,
+        end_time,
+    ):
+        """
+        Check whether a resource has a conflicting booking. Overlap is
+        determined at the SQL layer by MeetingRepository, so any row
+        returned is already a genuine conflict (back-to-back bookings
+        are excluded).
+        """
+        bookings = MeetingRepository.get_resource_bookings_between(
+            db,
+            resource_id,
+            start_time,
+            end_time,
+        )
+
+        if bookings:
+            return True, bookings[0]
+
+        return False, None
+
+    @staticmethod
     def check_all_participants(
         db: Session,
         participant_ids: list[int],

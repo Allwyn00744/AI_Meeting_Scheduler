@@ -1,5 +1,6 @@
 from app.db.database import Base
 from app.models.user import User
+from app.models.resource import Resource
 from app.models.meeting import Meeting
 from app.models.meeting_participant import MeetingParticipant
 from app.models.availability import Availability
