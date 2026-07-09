@@ -12,6 +12,11 @@ from app.repositories.external_meeting_guest_repository import (
 from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.resource_repository import ResourceRepository
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
+from app.services.analytics_service import (
+    EVENT_CONFLICT_BLOCKED_OWNER,
+    EVENT_CONFLICT_BLOCKED_RESOURCE,
+    AnalyticsService,
+)
 from app.services.conflict_service import ConflictService
 from app.services.external_guest_service import ExternalGuestService
 from app.services.google_calendar_service import GoogleCalendarService
@@ -39,6 +44,10 @@ class MeetingService:
         )
 
         if conflict:
+            AnalyticsService.try_record_event(
+                current_user.id,
+                EVENT_CONFLICT_BLOCKED_OWNER,
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
@@ -81,6 +90,10 @@ class MeetingService:
             )
 
             if resource_conflict:
+                AnalyticsService.try_record_event(
+                    current_user.id,
+                    EVENT_CONFLICT_BLOCKED_RESOURCE,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=(

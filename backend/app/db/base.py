@@ -10,3 +10,4 @@ from app.models.oauth_state import GoogleOAuthState
 from app.models.meeting_notes import MeetingNotes
 from app.models.meeting_summary import MeetingSummary
 from app.models.meeting_action_item import MeetingActionItem
+from app.models.analytics_event import AnalyticsEvent
