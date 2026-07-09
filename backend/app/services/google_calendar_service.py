@@ -129,6 +129,7 @@ class GoogleCalendarService:
         start_time,
         end_time,
         location: str | None = None,
+        attendee_emails: list[str] | None = None,
     ):
         credential = (
             GoogleCredentialRepository.get_by_user_id(
@@ -161,6 +162,7 @@ class GoogleCalendarService:
                 start_time=start_time,
                 end_time=end_time,
                 location=location,
+                attendee_emails=attendee_emails,
             )
         except HttpError as exc:
             logger.warning(

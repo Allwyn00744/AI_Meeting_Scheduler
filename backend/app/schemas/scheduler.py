@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+
+from app.schemas.external_guest import normalize_external_guest_emails
 
 # Hard ceiling on how many occurrences a single recurring-series
 # request can create. Without this, a caller could pass an
@@ -21,10 +23,18 @@ class ScheduleMeetingRequest(BaseModel):
     resource_id: int | None = None
 
     participant_ids: list[int]
+    external_guest_emails: list[EmailStr] = Field(default_factory=list)
 
     repeat: bool = False
     repeat_type: str | None = None
     occurrences: int | None = None
+
+    @model_validator(mode="after")
+    def normalize_external_guests(self):
+        self.external_guest_emails = normalize_external_guest_emails(
+            self.external_guest_emails
+        )
+        return self
 
     @model_validator(mode="after")
     def validate_request(self):

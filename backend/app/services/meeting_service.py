@@ -3,12 +3,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from datetime import date
 
+from app.models.external_meeting_guest import ExternalMeetingGuest
 from app.models.meeting import Meeting
 from app.models.user import User
+from app.repositories.external_meeting_guest_repository import (
+    ExternalMeetingGuestRepository,
+)
 from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.resource_repository import ResourceRepository
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
 from app.services.conflict_service import ConflictService
+from app.services.external_guest_service import ExternalGuestService
 from app.services.google_calendar_service import GoogleCalendarService
 
 
@@ -84,6 +89,15 @@ class MeetingService:
                     ),
                 )
 
+        # Resolve external guests before writing anything. This path
+        # has no participant_ids, so only the owner-collision rule
+        # applies (participant_emails is empty).
+        resolved_guests = ExternalGuestService.resolve_guests(
+            meeting.external_guest_emails,
+            current_user.email,
+            [],
+        )
+
         # Create the meeting
         db_meeting = Meeting(
             title=meeting.title,
@@ -95,7 +109,21 @@ class MeetingService:
             resource_id=meeting.resource_id,
         )
 
-        return MeetingRepository.create(db, db_meeting)
+        db_meeting = MeetingRepository.create(db, db_meeting)
+
+        if resolved_guests:
+            ExternalMeetingGuestRepository.create_many(
+                db,
+                [
+                    ExternalMeetingGuest(
+                        meeting_id=db_meeting.id,
+                        email=email,
+                    )
+                    for email in resolved_guests
+                ],
+            )
+
+        return db_meeting
 
     @staticmethod
     def get_my_meetings(

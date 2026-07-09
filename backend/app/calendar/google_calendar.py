@@ -35,6 +35,7 @@ class GoogleCalendarAPI:
         start_time,
         end_time,
         location: str | None = None,
+        attendee_emails: list[str] | None = None,
     ):
         service = GoogleCalendarAPI.get_calendar_service(
             credential
@@ -59,6 +60,11 @@ class GoogleCalendarAPI:
                 }
             },
         }
+
+        if attendee_emails:
+            event["attendees"] = [
+                {"email": email} for email in attendee_emails
+            ]
 
         created_event = (
             service.events()
