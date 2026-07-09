@@ -12,6 +12,9 @@ from app.api.scheduler_routes import router as scheduler_router
 from app.api.email_routes import router as email_router
 from app.api.google_routes import router as google_router
 from app.api.ai_routes import router as ai_router
+from app.api.meeting_intelligence_routes import (
+    router as meeting_intelligence_router,
+)
 
 from app.core.config import settings
 from app.core.exception_handlers import (
@@ -67,3 +70,4 @@ app.include_router(scheduler_router)
 app.include_router(email_router)
 app.include_router(google_router)
 app.include_router(ai_router)
+app.include_router(meeting_intelligence_router)

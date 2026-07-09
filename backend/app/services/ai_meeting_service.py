@@ -34,10 +34,14 @@ from app.repositories.user_repository import UserRepository
 from app.schemas.ai import (
     AISchedulingIntent,
     FollowUpDraftResponse,
+    GeneratedMeetingSummary,
     MeetingSummaryResponse,
 )
 from app.schemas.scheduler import ScheduleMeetingRequest
 from app.services.gemini_service import GeminiService
+from app.services.meeting_intelligence_service import (
+    MeetingIntelligenceService,
+)
 from app.services.scheduler_service import SchedulerService
 
 logger = logging.getLogger(__name__)
@@ -292,6 +296,11 @@ class AIMeetingService:
         Generate a structured summary and extract action items from the
         supplied meeting notes. The authenticated user must be the owner
         or a participant of the meeting.
+
+        Persistence of the notes/summary/action items is delegated to
+        MeetingIntelligenceService after Gemini output has been
+        validated — this method still never writes to the database
+        directly.
         """
         meeting = AIMeetingService._get_meeting_authorized(
             db, meeting_id, current_user
@@ -331,7 +340,7 @@ class AIMeetingService:
         raw = GeminiService.generate_json(prompt)
 
         try:
-            return MeetingSummaryResponse.model_validate(raw)
+            generated = GeneratedMeetingSummary.model_validate(raw)
         except ValidationError as exc:
             logger.warning(
                 "Gemini summary output failed validation. "
@@ -343,6 +352,19 @@ class AIMeetingService:
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="AI service returned an invalid summary response.",
             )
+
+        # --- Persist notes + summary + action items ---
+        # No database write happens above this point. If Gemini fails
+        # or its output fails validation, execution never reaches here,
+        # so no partial intelligence record can ever be created.
+        return MeetingIntelligenceService.persist_summary(
+            db=db,
+            meeting_id=meeting.id,
+            notes_text=notes,
+            summary_text=generated.summary,
+            action_items=generated.action_items,
+            current_user=current_user,
+        )
 
     # ------------------------------------------------------------------
     # 3. Follow-up Generation
