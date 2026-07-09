@@ -27,6 +27,12 @@ from app.schemas.scheduler import (
     SuggestedSlot,
 )
 
+from app.services.analytics_service import (
+    EVENT_CONFLICT_BLOCKED_OWNER,
+    EVENT_CONFLICT_BLOCKED_PARTICIPANT,
+    EVENT_CONFLICT_BLOCKED_RESOURCE,
+    AnalyticsService,
+)
 from app.services.email_service import EmailService
 from app.services.conflict_service import ConflictService
 from app.services.availability_service import AvailabilityService
@@ -259,6 +265,10 @@ class SchedulerService:
             )
 
             if owner_conflict:
+                AnalyticsService.try_record_event(
+                    current_user.id,
+                    EVENT_CONFLICT_BLOCKED_OWNER,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=(
@@ -293,6 +303,10 @@ class SchedulerService:
             )
 
             if conflict:
+                AnalyticsService.try_record_event(
+                    current_user.id,
+                    EVENT_CONFLICT_BLOCKED_PARTICIPANT,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=(
@@ -333,6 +347,10 @@ class SchedulerService:
                 )
 
                 if resource_conflict:
+                    AnalyticsService.try_record_event(
+                        current_user.id,
+                        EVENT_CONFLICT_BLOCKED_RESOURCE,
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=(
