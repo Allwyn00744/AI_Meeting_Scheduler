@@ -165,3 +165,19 @@ def filter_by_date_range(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get(
+    "/{meeting_id}",
+    response_model=MeetingResponse,
+)
+def get_meeting(
+    meeting_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return MeetingService.get_meeting_by_id(
+        db,
+        meeting_id,
+        current_user,
+    )

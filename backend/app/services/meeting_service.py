@@ -9,6 +9,9 @@ from app.models.user import User
 from app.repositories.external_meeting_guest_repository import (
     ExternalMeetingGuestRepository,
 )
+from app.repositories.meeting_participant_repository import (
+    MeetingParticipantRepository,
+)
 from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.resource_repository import ResourceRepository
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
@@ -137,6 +140,39 @@ class MeetingService:
             )
 
         return db_meeting
+
+    @staticmethod
+    def get_meeting_by_id(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        is_owner = meeting.owner_id == current_user.id
+
+        is_participant = MeetingParticipantRepository.get_by_meeting_and_user(
+            db,
+            meeting_id,
+            current_user.id,
+        ) is not None
+
+        if not is_owner and not is_participant:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "You must be the meeting owner or a participant "
+                    "to view this meeting."
+                ),
+            )
+
+        return meeting
 
     @staticmethod
     def get_my_meetings(
