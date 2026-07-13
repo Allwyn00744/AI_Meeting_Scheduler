@@ -320,3 +320,42 @@ class GoogleCalendarService:
             )
 
         return credential
+
+    @staticmethod
+    def get_connection_status(db: Session, user_id: int) -> dict:
+        """
+        Used by GET /google/status. Returns whether this user has a
+        stored Google credential, without attempting to refresh or
+        validate the token (a cheap, read-only check for the Settings
+        UI to render Connected/Not connected).
+        """
+        credential = GoogleCredentialRepository.get_by_user_id(
+            db,
+            user_id,
+        )
+
+        return {
+            "connected": credential is not None,
+        }
+
+    @staticmethod
+    def disconnect(db: Session, user_id: int) -> None:
+        """
+        Used by DELETE /google/disconnect. Removes the stored
+        credential row. This does not revoke the token on Google's
+        side (no token revocation call is made) - it only stops this
+        app from using it, matching the "Disconnect" action shown in
+        the Settings UI.
+        """
+        credential = GoogleCredentialRepository.get_by_user_id(
+            db,
+            user_id,
+        )
+
+        if credential is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Google account is not connected.",
+            )
+
+        GoogleCredentialRepository.delete(db, credential)
