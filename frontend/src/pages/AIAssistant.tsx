@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Sparkles, PenSquare, Video, X, Loader2 } from "lucide-react";
+import { Sparkles, PenSquare, Video, X, Loader2, Mic, Square, RotateCcw } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
@@ -13,6 +13,7 @@ import { schedulerApi } from "@/api/scheduler";
 import { aiApi } from "@/api/ai";
 import { getApiErrorMessage } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import type { SuggestedSlot } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +52,36 @@ export default function AIAssistant() {
       setAiSubmitting(false);
     }
   };
+
+  // --- AI voice-to-schedule path (POST /ai/schedule-voice) ---
+  const [voiceSubmitting, setVoiceSubmitting] = React.useState(false);
+  const [voiceBlob, setVoiceBlob] = React.useState<Blob | null>(null);
+
+  // useVoiceRecorder needs its onStopped callback up front, but that
+  // callback needs to call back into the `voice` object the hook
+  // itself returns (e.g. voice.reset()) - a ref indirection avoids the
+  // circular-definition problem without restructuring the hook.
+  const handleVoiceStoppedRef = React.useRef<(blob: Blob) => void>(() => {});
+  const voice = useVoiceRecorder((blob) => handleVoiceStoppedRef.current(blob));
+
+  handleVoiceStoppedRef.current = async (blob: Blob) => {
+    setVoiceBlob(blob);
+    setVoiceSubmitting(true);
+    try {
+      const result = await aiApi.scheduleFromVoice(blob);
+      push("success", result.message);
+      voice.reset();
+      setVoiceBlob(null);
+      setAiSuccessOpen(true);
+    } catch (err) {
+      push("error", "Couldn't schedule that meeting", getApiErrorMessage(err));
+      voice.setState("error");
+    } finally {
+      setVoiceSubmitting(false);
+    }
+  };
+
+  const formatElapsed = (s: number) => `0:${String(s).padStart(2, "0")}`;
 
   // --- Manual scheduling path (POST /scheduler/schedule + /suggest-slots) ---
   const [title, setTitle] = React.useState("");
@@ -159,6 +190,99 @@ export default function AIAssistant() {
             Requires the backend's Gemini integration to be configured (GEMINI_API_KEY); returns 503 otherwise.
           </p>
         </div>
+      </Card>
+
+      <div className="mb-6 flex items-center gap-3">
+        <div className="h-px flex-1 bg-slate-200" />
+        <span className="text-xs font-medium text-slate-400">OR</span>
+        <div className="h-px flex-1 bg-slate-200" />
+      </div>
+
+      <Card className="mb-6">
+        <div className="flex items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">
+              <Mic className="h-4 w-4" />
+            </div>
+            <p className="font-semibold text-slate-900">Schedule by voice</p>
+          </div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Spoken request</p>
+        </div>
+
+        {!voice.isSupported ? (
+          <div className="px-6 pb-6 text-center">
+            <p className="text-sm text-slate-500">
+              Voice input isn't supported in this browser. Try Chrome, Edge, or Firefox — or use the text box above instead.
+            </p>
+          </div>
+        ) : (
+          <div className="px-6 pb-8 pt-2 text-center">
+            {voice.state === "idle" && (
+              <>
+                <button
+                  onClick={voice.start}
+                  className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-brand-600 transition hover:bg-brand-700"
+                >
+                  <Mic className="h-6 w-6 text-white" />
+                </button>
+                <p className="text-sm text-slate-500">Tap to schedule a meeting by voice</p>
+                <p className="mt-1 text-xs text-slate-400">
+                  e.g. "Schedule a product meeting tomorrow at 11 AM with the engineering team"
+                </p>
+              </>
+            )}
+
+            {voice.state === "recording" && (
+              <>
+                <p className="mb-3 text-xs font-medium text-red-600">
+                  Recording — {formatElapsed(voice.elapsedSeconds)} / {formatElapsed(voice.maxRecordingSeconds)}
+                </p>
+                <div className="mx-auto mb-4 flex items-center justify-center gap-3">
+                  <button
+                    onClick={voice.discard}
+                    className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-50"
+                    title="Discard recording"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={voice.stop}
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-red-600 transition hover:bg-red-700"
+                  >
+                    <Square className="h-5 w-5 fill-white text-white" />
+                  </button>
+                </div>
+                <p className="text-sm text-slate-500">Tap the square to stop and schedule, or the X to discard</p>
+              </>
+            )}
+
+            {(voice.state === "processing" || voiceSubmitting) && (
+              <>
+                <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-brand-600" />
+                <p className="text-sm text-slate-500">Transcribing and scheduling...</p>
+              </>
+            )}
+
+            {voice.state === "error" && (
+              <div className="mx-auto max-w-sm">
+                <p className="mb-4 text-sm text-red-600">{voice.error ?? "Something went wrong with that recording."}</p>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    voice.reset();
+                    setVoiceBlob(null);
+                  }}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" /> Try again
+                </Button>
+              </div>
+            )}
+
+            {voiceBlob && voice.state === "idle" && (
+              <p className="mt-4 text-center text-xs text-slate-400">Last recording sent — {Math.round(voiceBlob.size / 1024)} KB</p>
+            )}
+          </div>
+        )}
       </Card>
 
       <div className="mb-6 flex items-center gap-3">
