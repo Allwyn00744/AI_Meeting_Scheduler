@@ -56,6 +56,7 @@ export default function AIAssistant() {
   // --- AI voice-to-schedule path (POST /ai/schedule-voice) ---
   const [voiceSubmitting, setVoiceSubmitting] = React.useState(false);
   const [voiceBlob, setVoiceBlob] = React.useState<Blob | null>(null);
+  const [voiceErrorMessage, setVoiceErrorMessage] = React.useState<string | null>(null);
 
   // useVoiceRecorder needs its onStopped callback up front, but that
   // callback needs to call back into the `voice` object the hook
@@ -74,7 +75,9 @@ export default function AIAssistant() {
       setVoiceBlob(null);
       setAiSuccessOpen(true);
     } catch (err) {
-      push("error", "Couldn't schedule that meeting", getApiErrorMessage(err));
+      const message = getApiErrorMessage(err, "Something went wrong with that recording.");
+      push("error", "Couldn't schedule that meeting", message);
+      setVoiceErrorMessage(message);
       voice.setState("error");
     } finally {
       setVoiceSubmitting(false);
@@ -220,7 +223,10 @@ export default function AIAssistant() {
             {voice.state === "idle" && (
               <>
                 <button
-                  onClick={voice.start}
+                  onClick={() => {
+                    setVoiceErrorMessage(null);
+                    voice.start();
+                  }}
                   className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-brand-600 transition hover:bg-brand-700"
                 >
                   <Mic className="h-6 w-6 text-white" />
@@ -265,12 +271,15 @@ export default function AIAssistant() {
 
             {voice.state === "error" && (
               <div className="mx-auto max-w-sm">
-                <p className="mb-4 text-sm text-red-600">{voice.error ?? "Something went wrong with that recording."}</p>
+                <p className="mb-4 text-sm text-red-600">
+                  {voiceErrorMessage ?? voice.error ?? "Something went wrong with that recording."}
+                </p>
                 <Button
                   variant="secondary"
                   onClick={() => {
                     voice.reset();
                     setVoiceBlob(null);
+                    setVoiceErrorMessage(null);
                   }}
                 >
                   <RotateCcw className="h-3.5 w-3.5" /> Try again
