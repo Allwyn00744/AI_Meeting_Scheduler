@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str
     GOOGLE_REDIRECT_URI: str
 
+    # Where the Google OAuth callback sends the browser after it
+    # finishes (success or error) - the frontend's Settings page, not
+    # this API. Never include a trailing slash.
+    FRONTEND_URL: str = "http://localhost:5173"
+
     # JWT
     # No default on purpose: the application must fail fast at
     # startup if this is not supplied via environment/.env, rather

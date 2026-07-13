@@ -25,3 +25,8 @@ class GoogleCredentialRepository:
         db.commit()
         db.refresh(credential)
         return credential
+
+    @staticmethod
+    def delete(db: Session, credential: GoogleCredential):
+        db.delete(credential)
+        db.commit()

@@ -1,6 +1,7 @@
 import * as React from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Calendar, MailWarning } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Calendar, CheckCircle2, MailWarning } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
@@ -8,6 +9,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/hooks/useAuth";
 import { usersApi } from "@/api/users";
+import { googleApi } from "@/api/google";
 import { getApiErrorMessage } from "@/api/client";
 
 const TABS = ["Profile", "Google Calendar", "Security"] as const;
@@ -21,6 +23,7 @@ export default function Settings() {
   const { push } = useToast();
   const { user, refetchUser } = useAuth();
   const [tab, setTab] = React.useState<(typeof TABS)[number]>("Profile");
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [name, setName] = React.useState(user?.name ?? "");
   const [email, setEmail] = React.useState(user?.email ?? "");
@@ -51,6 +54,36 @@ export default function Settings() {
     },
     onError: (err) => push("error", "Couldn't update password", getApiErrorMessage(err)),
   });
+
+  const { data: googleStatus, isLoading: googleStatusLoading, refetch: refetchGoogle } = useQuery({
+    queryKey: ["google-status"],
+    queryFn: googleApi.status,
+  });
+  const disconnectGoogle = useMutation({
+    mutationFn: googleApi.disconnect,
+    onSuccess: () => {
+      push("success", "Google Calendar disconnected");
+      refetchGoogle();
+    },
+    onError: (err) => push("error", "Couldn't disconnect", getApiErrorMessage(err)),
+  });
+
+  React.useEffect(() => {
+    const googleResult = searchParams.get("google");
+    if (!googleResult) return;
+
+    if (googleResult === "connected") {
+      push("success", "Google Calendar connected");
+      refetchGoogle();
+    } else if (googleResult === "error") {
+      push("error", "Couldn't connect Google Calendar", "Please try again.");
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("google");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   if (!user) return null;
 
@@ -121,10 +154,35 @@ export default function Settings() {
             <div className="flex-1">
               <p className="font-medium text-slate-900">Google Calendar</p>
               <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
-                <MailWarning className="h-3 w-3 text-amber-600" /> Not available yet
+                {googleStatusLoading ? (
+                  "Checking connection..."
+                ) : googleStatus?.connected ? (
+                  <>
+                    <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Connected
+                  </>
+                ) : (
+                  <>
+                    <MailWarning className="h-3 w-3 text-amber-600" /> Not connected
+                  </>
+                )}
               </p>
             </div>
-            <Button disabled>Connect</Button>
+            {googleStatus?.connected ? (
+              <Button
+                variant="danger"
+                onClick={() => disconnectGoogle.mutate()}
+                loading={disconnectGoogle.isPending}
+              >
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                disabled={googleStatusLoading}
+                onClick={() => (window.location.href = googleApi.connectRedirectUrl())}
+              >
+                Connect Google
+              </Button>
+            )}
           </div>
         </Card>
       )}
