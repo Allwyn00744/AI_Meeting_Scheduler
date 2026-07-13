@@ -97,6 +97,75 @@ class GeminiService:
         return cls._client
 
     @classmethod
+    def transcribe_audio(cls, audio_bytes: bytes, mime_type: str) -> str:
+        """
+        Transcribe spoken audio to plain text using Gemini's multimodal
+        input. Used by voice scheduling (POST /ai/schedule-voice) as a
+        preprocessing step before the existing text-scheduling pipeline
+        — the transcript produced here is handed to the exact same code
+        path as typed text.
+
+        Raises:
+            503 — API key absent/blank, or provider unreachable/timed out.
+            502 — provider returned an empty transcript.
+
+        audio_bytes may contain user-supplied audio; it is never
+        written to logs.
+        """
+        client = cls._get_client()
+        _, types = _load_genai()
+        from app.core.config import settings  # noqa: PLC0415
+
+        try:
+            response = client.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=[
+                    types.Part.from_bytes(
+                        data=audio_bytes,
+                        mime_type=mime_type,
+                    ),
+                    (
+                        "Transcribe this audio exactly as spoken. "
+                        "Return ONLY the transcript text, with no "
+                        "commentary, labels, or markdown formatting."
+                    ),
+                ],
+            )
+            transcript = response.text
+
+        except HTTPException:
+            raise
+        except Exception:
+            # Intentionally NOT logging the exception body — it may
+            # contain audio-derived content.
+            logger.error(
+                "Gemini audio transcription failed. model=%s",
+                settings.GEMINI_MODEL,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "AI service is temporarily unavailable. "
+                    "Please try again."
+                ),
+            )
+
+        if not transcript or not transcript.strip():
+            logger.error(
+                "Gemini returned an empty transcript. model=%s",
+                settings.GEMINI_MODEL,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "Could not transcribe the audio. Please ensure "
+                    "the recording contains clear speech and try again."
+                ),
+            )
+
+        return transcript.strip()
+
+    @classmethod
     def generate_json(cls, prompt: str) -> dict[str, Any]:
         """
         Call Gemini with JSON output mode and return a parsed dict.

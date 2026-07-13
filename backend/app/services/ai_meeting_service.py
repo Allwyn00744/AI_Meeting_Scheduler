@@ -35,6 +35,7 @@ from app.schemas.ai import (
     AISchedulingIntent,
     FollowUpDraftResponse,
     GeneratedMeetingSummary,
+    MAX_SCHEDULING_TEXT_LENGTH,
     MeetingSummaryResponse,
 )
 from app.schemas.scheduler import ScheduleMeetingRequest
@@ -135,6 +136,43 @@ class AIMeetingService:
     # ------------------------------------------------------------------
     # 1. AI Text Scheduling
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def schedule_from_voice(
+        db: Session,
+        audio_bytes: bytes,
+        mime_type: str,
+        current_user: User,
+    ) -> dict:
+        """
+        Transcribe spoken audio, then hand the transcript to the
+        existing schedule_from_text exactly as if it had been typed.
+        No create-vs-query/update/cancel dispatch lives here — voice
+        scheduling in V1 only ever creates a meeting, mirroring
+        exactly what the text endpoint does today. Calls
+        schedule_from_text exactly once; no scheduling logic is
+        duplicated here.
+
+        The transcript never passes through TextScheduleRequest's own
+        Pydantic max_length check (it isn't a JSON request body), so
+        the same MAX_SCHEDULING_TEXT_LENGTH bound is enforced here
+        explicitly instead — not silently skipped, not truncated.
+        """
+        transcript = GeminiService.transcribe_audio(audio_bytes, mime_type)
+
+        if len(transcript) > MAX_SCHEDULING_TEXT_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "The transcribed request is too long to process "
+                    f"(max {MAX_SCHEDULING_TEXT_LENGTH} characters). "
+                    "Please make a shorter recording."
+                ),
+            )
+
+        return AIMeetingService.schedule_from_text(
+            db, transcript, current_user
+        )
 
     @staticmethod
     def schedule_from_text(

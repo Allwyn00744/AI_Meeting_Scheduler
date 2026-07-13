@@ -21,9 +21,12 @@ from app.schemas.meeting_intelligence import ActionItemResponse
 # Field-level limits
 # ---------------------------------------------------------------------------
 
-# Maximum character lengths for free-text inputs.
-_MAX_TEXT_LEN = 2_000       # scheduling request
-_MAX_NOTES_LEN = 50_000     # meeting notes / transcript
+# Maximum character lengths for free-text inputs. Public (no leading
+# underscore) because AIMeetingService.schedule_from_voice also enforces
+# this same bound against a Gemini-produced transcript, which never
+# passes through TextScheduleRequest's own Pydantic validation.
+MAX_SCHEDULING_TEXT_LENGTH = 2_000  # scheduling request
+_MAX_NOTES_LEN = 50_000              # meeting notes / transcript
 
 # Duration bounds (minutes).
 _MIN_DURATION = 1
@@ -42,7 +45,7 @@ class TextScheduleRequest(BaseModel):
         str,
         Field(
             min_length=1,
-            max_length=_MAX_TEXT_LEN,
+            max_length=MAX_SCHEDULING_TEXT_LENGTH,
             description="Natural-language scheduling request.",
         ),
     ]
