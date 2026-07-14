@@ -23,6 +23,35 @@ function toDatetimeLocal(iso: string) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Splits on commas, trims, drops empties, validates, and deduplicates
+// case-insensitively - mirrors the backend's
+// normalize_external_guest_emails so the payload sent is already in
+// its final form.
+function parseGuestEmails(raw: string): { emails: string[]; invalid: string[] } {
+  const seen = new Set<string>();
+  const emails: string[] = [];
+  const invalid: string[] = [];
+
+  for (const rawPart of raw.split(",")) {
+    const part = rawPart.trim();
+    if (!part) continue;
+
+    if (!EMAIL_REGEX.test(part)) {
+      invalid.push(part);
+      continue;
+    }
+
+    const normalized = part.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    emails.push(normalized);
+  }
+
+  return { emails, invalid };
+}
+
 export default function AIAssistant() {
   const navigate = useNavigate();
   const { push } = useToast();
@@ -92,6 +121,7 @@ export default function AIAssistant() {
   const [resourceId, setResourceId] = React.useState<string>("");
   const [participantIds, setParticipantIds] = React.useState<number[]>([]);
   const [guestQuery, setGuestQuery] = React.useState("");
+  const [guestEmailsInput, setGuestEmailsInput] = React.useState("");
   const [slots, setSlots] = React.useState<SuggestedSlot[] | null>(null);
   const [slotsLoading, setSlotsLoading] = React.useState(false);
   const [manualSubmitting, setManualSubmitting] = React.useState(false);
@@ -112,7 +142,7 @@ export default function AIAssistant() {
     location: location || undefined,
     resource_id: resourceId ? Number(resourceId) : undefined,
     participant_ids: participantIds,
-    external_guest_emails: [],
+    external_guest_emails: parseGuestEmails(guestEmailsInput).emails,
   });
 
   const validateManual = () => {
@@ -122,6 +152,12 @@ export default function AIAssistant() {
     if (!endTime) errs.end_time = "End time is required.";
     if (startTime && endTime && new Date(endTime) <= new Date(startTime)) {
       errs.end_time = "End time must be after start time.";
+    }
+    const { invalid } = parseGuestEmails(guestEmailsInput);
+    if (invalid.length > 0) {
+      const message = `Invalid email address${invalid.length > 1 ? "es" : ""}: ${invalid.join(", ")}`;
+      errs.guest_emails = message;
+      push("error", "Fix the external guest emails", message);
     }
     setManualErrors(errs);
     return Object.keys(errs).length === 0;
@@ -149,6 +185,7 @@ export default function AIAssistant() {
     try {
       const result = await schedulerApi.schedule(buildPayload());
       push("success", result.message);
+      setGuestEmailsInput("");
       navigate(`/meetings/${result.meeting_ids[0]}`);
     } catch (err) {
       push("error", "Couldn't book this meeting", getApiErrorMessage(err));
@@ -402,6 +439,21 @@ export default function AIAssistant() {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              External guest emails (optional)
+            </label>
+            <Input
+              placeholder="guest1@example.com, guest2@example.com"
+              value={guestEmailsInput}
+              onChange={(e) => setGuestEmailsInput(e.target.value)}
+              error={manualErrors.guest_emails}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              Separate multiple addresses with commas. These guests don't need an account.
+            </p>
           </div>
         </div>
 

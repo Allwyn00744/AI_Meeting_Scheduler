@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -23,6 +25,11 @@ from app.services.analytics_service import (
 from app.services.conflict_service import ConflictService
 from app.services.external_guest_service import ExternalGuestService
 from app.services.google_calendar_service import GoogleCalendarService
+from app.services.meeting_notification_service import (
+    MeetingNotificationService,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class MeetingService:
@@ -139,6 +146,41 @@ class MeetingService:
                 ],
             )
 
+        # Google Calendar sync is a best-effort side effect, isolated
+        # from the database transaction above (already committed):
+        # PostgreSQL and Google Calendar are two separate systems with
+        # no distributed transaction between them. Mirrors the same
+        # pattern used by SchedulerService.schedule_meeting so this
+        # endpoint's meetings also show up on the owner's calendar.
+        try:
+            event = GoogleCalendarService.create_google_calendar_event(
+                db=db,
+                user_id=current_user.id,
+                title=db_meeting.title,
+                description=db_meeting.description or "",
+                start_time=db_meeting.start_time,
+                end_time=db_meeting.end_time,
+                location=db_meeting.location,
+                attendee_emails=resolved_guests,
+            )
+
+            db_meeting.google_event_id = event.get("id")
+            db_meeting.google_event_link = event.get("htmlLink")
+            db_meeting.google_meet_link = event.get("hangoutLink")
+
+            db.commit()
+            db.refresh(db_meeting)
+        except Exception:
+            logger.exception(
+                "Google Calendar integration failed. meeting_id=%s",
+                db_meeting.id,
+            )
+
+        # Best-effort: the meeting is already committed above, so an
+        # SMTP failure here must not turn a successful creation into
+        # a failed request.
+        MeetingNotificationService.notify_meeting_created(db, db_meeting)
+
         return db_meeting
 
     @staticmethod
@@ -223,6 +265,9 @@ class MeetingService:
                 meeting=meeting,
             )
 
+        # Best-effort: the update is already committed above.
+        MeetingNotificationService.notify_meeting_updated(db, meeting)
+
         return meeting
 
     @staticmethod
@@ -258,6 +303,12 @@ class MeetingService:
                 db=db,
                 meeting=meeting,
             )
+
+        # Resolve recipients and notify before the delete below -
+        # participant/external-guest rows are removed via ON DELETE
+        # CASCADE once the meeting row is gone, so they must be read
+        # first. Best-effort: an SMTP failure must not block deletion.
+        MeetingNotificationService.notify_meeting_cancelled(db, meeting)
 
         # Delete meeting from database. Participant rows are removed
         # automatically at the database level (ON DELETE CASCADE on

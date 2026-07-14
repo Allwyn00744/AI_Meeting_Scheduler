@@ -38,6 +38,9 @@ from app.services.conflict_service import ConflictService
 from app.services.availability_service import AvailabilityService
 from app.services.external_guest_service import ExternalGuestService
 from app.services.google_calendar_service import GoogleCalendarService
+from app.services.meeting_notification_service import (
+    MeetingNotificationService,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -801,5 +804,8 @@ class SchedulerService:
                 db,
                 db_meeting,
             )
+
+        # Best-effort: the update is already committed above.
+        MeetingNotificationService.notify_meeting_updated(db, db_meeting)
 
         return db_meeting

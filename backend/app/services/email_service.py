@@ -125,3 +125,116 @@ class EmailService:
                 to_email.split("@")[-1] if "@" in to_email else "unknown",
             )
             return False
+
+    @staticmethod
+    def send_meeting_update(
+        to_email: str,
+        meeting_title: str,
+        start_time,
+        end_time,
+        location: str | None,
+    ):
+        body = f"""
+    A meeting you are part of has been updated.
+
+    Title: {meeting_title}
+
+    New Start: {start_time}
+
+    New End: {end_time}
+
+    Location: {location or "N/A"}
+
+    Please review the updated details.
+
+    Regards,
+    AI Meeting Scheduler
+    """
+
+        EmailService.send_email(
+            to_email=to_email,
+            subject=f"Meeting Updated: {meeting_title}",
+            body=body,
+        )
+
+    @staticmethod
+    def try_send_meeting_update(
+        to_email: str,
+        meeting_title: str,
+        start_time,
+        end_time,
+        location: str | None,
+    ) -> bool:
+        """
+        Best-effort variant, mirroring try_send_meeting_invitation:
+        never raises, so an SMTP outage cannot turn an already-
+        persisted meeting update into a failed request.
+        """
+        try:
+            EmailService.send_meeting_update(
+                to_email=to_email,
+                meeting_title=meeting_title,
+                start_time=start_time,
+                end_time=end_time,
+                location=location,
+            )
+            return True
+        except Exception:
+            logger.exception(
+                "Failed to send meeting update email. "
+                "recipient_domain=%s",
+                to_email.split("@")[-1] if "@" in to_email else "unknown",
+            )
+            return False
+
+    @staticmethod
+    def send_meeting_cancellation(
+        to_email: str,
+        meeting_title: str,
+        start_time,
+        end_time,
+    ):
+        body = f"""
+    A meeting you were part of has been cancelled.
+
+    Title: {meeting_title}
+
+    Was scheduled: {start_time} - {end_time}
+
+    Regards,
+    AI Meeting Scheduler
+    """
+
+        EmailService.send_email(
+            to_email=to_email,
+            subject=f"Meeting Cancelled: {meeting_title}",
+            body=body,
+        )
+
+    @staticmethod
+    def try_send_meeting_cancellation(
+        to_email: str,
+        meeting_title: str,
+        start_time,
+        end_time,
+    ) -> bool:
+        """
+        Best-effort variant, mirroring try_send_meeting_invitation:
+        never raises, so an SMTP outage cannot turn an already-
+        persisted cancellation/deletion into a failed request.
+        """
+        try:
+            EmailService.send_meeting_cancellation(
+                to_email=to_email,
+                meeting_title=meeting_title,
+                start_time=start_time,
+                end_time=end_time,
+            )
+            return True
+        except Exception:
+            logger.exception(
+                "Failed to send meeting cancellation email. "
+                "recipient_domain=%s",
+                to_email.split("@")[-1] if "@" in to_email else "unknown",
+            )
+            return False
