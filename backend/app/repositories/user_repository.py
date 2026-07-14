@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.user import User
@@ -28,6 +29,22 @@ class UserRepository:
     @staticmethod
     def get_user_by_email(db: Session, email: str):
         return db.query(User).filter(User.email == email).first()
+
+    @staticmethod
+    def get_user_by_email_ci(db: Session, email: str):
+        """
+        Case-insensitive email lookup. Registered emails are stored
+        with whatever casing the user typed at signup (no lowercasing
+        normalization exists in AuthService), so a caller resolving
+        an externally-supplied or AI-extracted address - which is
+        normalized to lowercase before reaching here - must not miss
+        a match purely due to stored casing.
+        """
+        return (
+            db.query(User)
+            .filter(func.lower(User.email) == email.strip().lower())
+            .first()
+        )
 
     @staticmethod
     def update_user(db: Session, user_id: int, user: UserUpdate):
