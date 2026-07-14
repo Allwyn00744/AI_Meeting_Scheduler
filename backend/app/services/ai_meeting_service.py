@@ -133,6 +133,41 @@ class AIMeetingService:
                     detail=f"Participant with user ID {uid} does not exist.",
                 )
 
+    @staticmethod
+    def _resolve_recipients(
+        db: Session,
+        participant_ids: list[int],
+        extracted_emails: list[str],
+    ) -> tuple[list[int], list[str]]:
+        """
+        Authoritatively resolve Gemini-extracted email addresses
+        against the users table (PostgreSQL is the source of truth,
+        never Gemini's own judgement): an email belonging to a
+        registered user is merged into participant_ids, everything
+        else remains an external guest email.
+
+        extracted_emails is expected to already be normalized/deduped
+        (AISchedulingIntent does this). Both returned lists are
+        deduplicated - participant_ids by user id, emails are simply
+        passed through since they came in already deduped and a
+        resolved-to-participant email is never also kept as a guest.
+        """
+        resolved_participant_ids = list(participant_ids)
+        seen_ids = set(resolved_participant_ids)
+        external_guest_emails: list[str] = []
+
+        for email in extracted_emails:
+            user = UserRepository.get_user_by_email_ci(db, email)
+
+            if user is not None:
+                if user.id not in seen_ids:
+                    seen_ids.add(user.id)
+                    resolved_participant_ids.append(user.id)
+            else:
+                external_guest_emails.append(email)
+
+        return resolved_participant_ids, external_guest_emails
+
     # ------------------------------------------------------------------
     # 1. AI Text Scheduling
     # ------------------------------------------------------------------
@@ -213,6 +248,7 @@ class AIMeetingService:
             '  "duration_minutes": 60,\n'
             '  "location": null,\n'
             '  "participant_ids": [],\n'
+            '  "external_guest_emails": [],\n'
             '  "repeat": false,\n'
             '  "repeat_type": null,\n'
             '  "occurrences": null\n'
@@ -231,6 +267,13 @@ class AIMeetingService:
             'mentioned in the request (e.g. "with user 5" → [5]). '
             "If participants are referenced by name or role only, "
             "set participant_ids to [].\n"
+            "- external_guest_emails: include every email address "
+            '(e.g. "guest@example.com") mentioned anywhere in the '
+            "request, exactly as written. Do not invent emails. Do "
+            "not try to decide whether an address belongs to a "
+            "registered user or an outside guest - just extract "
+            "every address you see. If none are mentioned, set "
+            "external_guest_emails to [].\n"
             "- If the title is not stated, derive a concise one from "
             "the request.\n"
             "- If a duration is mentioned but no end_time, set "
@@ -279,10 +322,17 @@ class AIMeetingService:
             )
 
 
-        # --- Verify participants exist in DB ---
-        AIMeetingService._verify_participants_exist(
-            db, intent.participant_ids
+        # --- Resolve extracted emails against the users table ---
+        # Authoritative: Gemini only extracts addresses, it never
+        # decides whether one belongs to a registered user.
+        participant_ids, external_guest_emails = (
+            AIMeetingService._resolve_recipients(
+                db, intent.participant_ids, intent.external_guest_emails
+            )
         )
+
+        # --- Verify participants exist in DB ---
+        AIMeetingService._verify_participants_exist(db, participant_ids)
 
         # --- Convert to ScheduleMeetingRequest ---
         # end_time is guaranteed to be set by AISchedulingIntent validator.
@@ -293,7 +343,8 @@ class AIMeetingService:
                 start_time=intent.start_time,
                 end_time=intent.end_time,  # type: ignore[arg-type]
                 location=intent.location,
-                participant_ids=intent.participant_ids,
+                participant_ids=participant_ids,
+                external_guest_emails=external_guest_emails,
                 repeat=intent.repeat,
                 repeat_type=intent.repeat_type,
                 occurrences=intent.occurrences,

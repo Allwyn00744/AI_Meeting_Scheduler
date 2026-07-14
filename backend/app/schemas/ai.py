@@ -10,12 +10,13 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 # Import the authoritative bounds from the existing scheduler schema so
 # that the AI layer never diverges from them.
 from app.schemas.scheduler import MAX_OCCURRENCES, SUPPORTED_REPEAT_TYPES
 from app.schemas.meeting_intelligence import ActionItemResponse
+from app.schemas.external_guest import normalize_external_guest_emails
 
 # ---------------------------------------------------------------------------
 # Field-level limits
@@ -82,6 +83,15 @@ class AISchedulingIntent(BaseModel):
     participant_ids: list[
         Annotated[int, Field(gt=0, description="Must be a positive user ID.")]
     ] = Field(default_factory=list)
+    external_guest_emails: list[EmailStr] = Field(
+        default_factory=list,
+        description=(
+            "Email addresses extracted from the request text. Not yet "
+            "classified as registered-user vs. external guest - "
+            "AIMeetingService resolves that authoritatively against "
+            "the users table."
+        ),
+    )
     repeat: bool = False
     repeat_type: Optional[str] = None
     occurrences: Optional[
@@ -151,6 +161,11 @@ class AISchedulingIntent(BaseModel):
         # --- Participant IDs must be unique ---
         if len(self.participant_ids) != len(set(self.participant_ids)):
             raise ValueError("participant_ids must not contain duplicates.")
+
+        # --- Normalize + dedupe extracted emails (case-insensitive) ---
+        self.external_guest_emails = normalize_external_guest_emails(
+            self.external_guest_emails
+        )
 
         return self
 
