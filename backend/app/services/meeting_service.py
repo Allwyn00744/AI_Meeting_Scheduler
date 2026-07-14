@@ -5,6 +5,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from datetime import date
 
+from app.core.cache import (
+    MEETINGS_LIST_TTL_SECONDS,
+    cache_delete,
+    cache_get,
+    cache_set,
+    cache_delete_prefix,
+    kpis_key,
+    meetings_list_key,
+    meetings_list_prefix,
+)
 from app.models.external_meeting_guest import ExternalMeetingGuest
 from app.models.meeting import Meeting
 from app.models.user import User
@@ -16,7 +26,7 @@ from app.repositories.meeting_participant_repository import (
 )
 from app.repositories.meeting_repository import MeetingRepository
 from app.repositories.resource_repository import ResourceRepository
-from app.schemas.meeting import MeetingCreate, MeetingUpdate
+from app.schemas.meeting import MeetingCreate, MeetingResponse, MeetingUpdate
 from app.services.analytics_service import (
     EVENT_CONFLICT_BLOCKED_OWNER,
     EVENT_CONFLICT_BLOCKED_RESOURCE,
@@ -181,6 +191,11 @@ class MeetingService:
         # a failed request.
         MeetingNotificationService.notify_meeting_created(db, db_meeting)
 
+        # The meeting is already committed above; cache invalidation
+        # is best-effort and must not affect the response either way.
+        cache_delete_prefix(meetings_list_prefix(current_user.id))
+        cache_delete(kpis_key(current_user.id))
+
         return db_meeting
 
     @staticmethod
@@ -223,12 +238,30 @@ class MeetingService:
         limit: int | None = None,
         offset: int = 0,
     ):
-        return MeetingRepository.get_all(
+        cache_key = meetings_list_key(current_user.id, limit, offset)
+        cached = cache_get(cache_key)
+
+        if cached is not None:
+            return cached
+
+        meetings = MeetingRepository.get_all(
             db,
             current_user.id,
             limit=limit,
             offset=offset,
         )
+
+        serialized = [
+            MeetingResponse.model_validate(meeting).model_dump(
+                mode="json"
+            )
+            for meeting in meetings
+        ]
+
+        if serialized:
+            cache_set(cache_key, serialized, MEETINGS_LIST_TTL_SECONDS)
+
+        return serialized
 
     @staticmethod
     def update_meeting(
@@ -267,6 +300,8 @@ class MeetingService:
 
         # Best-effort: the update is already committed above.
         MeetingNotificationService.notify_meeting_updated(db, meeting)
+
+        cache_delete_prefix(meetings_list_prefix(current_user.id))
 
         return meeting
 
@@ -328,6 +363,9 @@ class MeetingService:
                     "records. Please try again or contact support."
                 ),
             )
+
+        cache_delete_prefix(meetings_list_prefix(current_user.id))
+        cache_delete(kpis_key(current_user.id))
 
         return {
             "message": "Meeting deleted successfully"

@@ -65,6 +65,17 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
+    # Redis cache (optional). Redis is optional infrastructure: when
+    # REDIS_URL is unset, blank, or unreachable, caching is silently
+    # disabled and every read falls back to PostgreSQL - this is a
+    # supported production configuration, not a degraded one.
+    REDIS_URL: Optional[str] = None
+
+    # Bounded so a slow/unreachable Redis can never stall a request
+    # for long before falling back to PostgreSQL.
+    REDIS_SOCKET_TIMEOUT_SECONDS: float = 2.0
+    REDIS_CONNECT_TIMEOUT_SECONDS: float = 2.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",

@@ -5,6 +5,12 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.cache import (
+    cache_delete,
+    cache_delete_prefix,
+    kpis_key,
+    meetings_list_prefix,
+)
 from app.models.external_meeting_guest import ExternalMeetingGuest
 from app.models.meeting import Meeting
 from app.models.meeting_participant import MeetingParticipant
@@ -522,6 +528,10 @@ class SchedulerService:
                 location=meeting.location,
             )
 
+        if created_meetings:
+            cache_delete_prefix(meetings_list_prefix(current_user.id))
+            cache_delete(kpis_key(current_user.id))
+
         return {
             "message": "Meeting(s) scheduled successfully",
             "meeting_ids": created_meetings,
@@ -807,5 +817,7 @@ class SchedulerService:
 
         # Best-effort: the update is already committed above.
         MeetingNotificationService.notify_meeting_updated(db, db_meeting)
+
+        cache_delete_prefix(meetings_list_prefix(db_meeting.owner_id))
 
         return db_meeting
