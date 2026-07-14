@@ -49,6 +49,12 @@ def root():
     }
 
 
+# Liveness/readiness probe for container orchestration (Docker healthcheck).
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 # Specific handlers are registered before the catch-all Exception
 # handler so FastAPI matches IntegrityError to the dedicated 409
 # handler instead of falling through to the generic 500 handler.
