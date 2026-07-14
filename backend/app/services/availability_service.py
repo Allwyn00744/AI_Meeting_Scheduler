@@ -3,6 +3,13 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.core.cache import (
+    AVAILABILITY_TTL_SECONDS,
+    availability_list_key,
+    cache_delete,
+    cache_get,
+    cache_set,
+)
 from app.models.availability import Availability
 from app.models.user import User
 from app.repositories.availability_repository import (
@@ -13,6 +20,7 @@ from app.repositories.user_repository import UserRepository
 
 from app.schemas.availability import (
     AvailabilityCreate,
+    AvailabilityResponse,
     AvailabilityUpdate,
 )
 
@@ -39,20 +47,42 @@ class AvailabilityService:
             is_available=availability.is_available,
         )
 
-        return AvailabilityRepository.create(
+        db_availability = AvailabilityRepository.create(
             db,
             db_availability,
         )
+
+        cache_delete(availability_list_key(current_user.id))
+
+        return db_availability
 
     @staticmethod
     def get_my_availability(
         db: Session,
         current_user: User,
     ):
-        return AvailabilityRepository.get_by_user(
+        cache_key = availability_list_key(current_user.id)
+        cached = cache_get(cache_key)
+
+        if cached is not None:
+            return cached
+
+        availabilities = AvailabilityRepository.get_by_user(
             db,
             current_user.id,
         )
+
+        serialized = [
+            AvailabilityResponse.model_validate(
+                availability
+            ).model_dump(mode="json")
+            for availability in availabilities
+        ]
+
+        if serialized:
+            cache_set(cache_key, serialized, AVAILABILITY_TTL_SECONDS)
+
+        return serialized
 
     @staticmethod
     def update_availability(
@@ -101,10 +131,14 @@ class AvailabilityService:
         for key, value in update_data.items():
             setattr(availability, key, value)
 
-        return AvailabilityRepository.update(
+        availability = AvailabilityRepository.update(
             db,
             availability,
         )
+
+        cache_delete(availability_list_key(current_user.id))
+
+        return availability
 
     @staticmethod
     def delete_availability(
@@ -133,6 +167,8 @@ class AvailabilityService:
             db,
             availability,
         )
+
+        cache_delete(availability_list_key(current_user.id))
 
         return {
             "message": "Availability deleted successfully"

@@ -14,6 +14,13 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.core.cache import (
+    KPI_TTL_SECONDS,
+    cache_delete,
+    cache_get,
+    cache_set,
+    kpis_key,
+)
 from app.db.database import SessionLocal
 from app.repositories.analytics_repository import AnalyticsRepository
 
@@ -57,6 +64,7 @@ class AnalyticsService:
                 meeting_id,
             )
             analytics_db.commit()
+            cache_delete(kpis_key(user_id))
         except Exception:
             analytics_db.rollback()
             logger.exception(
@@ -70,6 +78,12 @@ class AnalyticsService:
 
     @staticmethod
     def get_kpis(db: Session, current_user):
+        cache_key = kpis_key(current_user.id)
+        cached = cache_get(cache_key)
+
+        if cached is not None:
+            return cached
+
         meetings_scheduled = (
             AnalyticsRepository.count_meetings_scheduled(
                 db,
@@ -89,8 +103,12 @@ class AnalyticsService:
             + conflicts_avoided * MINUTES_PER_CONFLICT_AVOIDED
         )
 
-        return {
+        result = {
             "meetings_scheduled": meetings_scheduled,
             "conflicts_avoided": conflicts_avoided,
             "time_saved_minutes": time_saved_minutes,
         }
+
+        cache_set(cache_key, result, KPI_TTL_SECONDS)
+
+        return result
