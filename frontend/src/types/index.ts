@@ -156,6 +156,15 @@ export interface SuggestSlotsResponse {
   slots: SuggestedSlot[];
 }
 
+export interface AutoRescheduleResponse {
+  meeting: Meeting;
+  previous_start_time: string;
+  previous_end_time: string;
+  new_start_time: string;
+  new_end_time: string;
+  message: string;
+}
+
 // ---- meeting intelligence (app/schemas/meeting_intelligence.py, ai.py) ----
 
 export type ActionItemStatus = "pending" | "completed";

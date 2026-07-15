@@ -28,6 +28,7 @@ from app.repositories.meeting_participant_repository import (
 
 from app.schemas.meeting import MeetingUpdate
 from app.schemas.scheduler import (
+    AutoRescheduleResponse,
     ScheduleMeetingRequest,
     SuggestSlotsResponse,
     SuggestedSlot,
@@ -47,6 +48,7 @@ from app.services.google_calendar_service import GoogleCalendarService
 from app.services.meeting_notification_service import (
     MeetingNotificationService,
 )
+from app.services.meeting_service import MeetingService
 
 
 logger = logging.getLogger(__name__)
@@ -821,3 +823,198 @@ class SchedulerService:
         cache_delete_prefix(meetings_list_prefix(db_meeting.owner_id))
 
         return db_meeting
+
+    @staticmethod
+    def _find_auto_reschedule_slot(
+        db: Session,
+        meeting: Meeting,
+        participant_ids: list[int],
+        window_days: int,
+    ):
+        """
+        Finds the first candidate slot, strictly after the meeting's
+        current start_time, that preserves its duration and is free
+        for the owner, every participant, and (if assigned) the
+        meeting's resource - checking both existing-meeting conflicts
+        and declared working-hours availability. Mirrors the search
+        pattern already used by suggest_reschedule_slots, with an
+        added resource-conflict check (auto-reschedule must not
+        double-book a resource, unlike the read-only suggestion
+        endpoint). Returns None if the window is exhausted.
+        """
+        duration = meeting.end_time - meeting.start_time
+        search_end = meeting.start_time + timedelta(days=window_days)
+        step = timedelta(minutes=RESCHEDULE_SEARCH_INTERVAL_MINUTES)
+        candidate_start = meeting.start_time + step
+
+        while candidate_start + duration <= search_end:
+            candidate_end = candidate_start + duration
+
+            owner_meetings = [
+                other
+                for other in MeetingRepository.get_meetings_between(
+                    db,
+                    meeting.owner_id,
+                    candidate_start,
+                    candidate_end,
+                )
+                if other.id != meeting.id
+            ]
+
+            owner_available = AvailabilityService.is_user_available(
+                db,
+                meeting.owner_id,
+                candidate_start,
+                candidate_end,
+            )
+
+            if owner_meetings or not owner_available:
+                candidate_start += step
+                continue
+
+            participant_blocked = False
+
+            for participant_id in participant_ids:
+
+                participant_meetings = [
+                    other
+                    for other in MeetingRepository.get_meetings_between(
+                        db,
+                        participant_id,
+                        candidate_start,
+                        candidate_end,
+                    )
+                    if other.id != meeting.id
+                ]
+
+                participant_available = (
+                    AvailabilityService.is_user_available(
+                        db,
+                        participant_id,
+                        candidate_start,
+                        candidate_end,
+                    )
+                )
+
+                if participant_meetings or not participant_available:
+                    participant_blocked = True
+                    break
+
+            if participant_blocked:
+                candidate_start += step
+                continue
+
+            if meeting.resource_id is not None:
+                resource_bookings = [
+                    other
+                    for other in (
+                        MeetingRepository.get_resource_bookings_between(
+                            db,
+                            meeting.resource_id,
+                            candidate_start,
+                            candidate_end,
+                        )
+                    )
+                    if other.id != meeting.id
+                ]
+
+                if resource_bookings:
+                    candidate_start += step
+                    continue
+
+            return SuggestedSlot(
+                start_time=candidate_start,
+                end_time=candidate_end,
+            )
+
+        return None
+
+    @staticmethod
+    def auto_reschedule_meeting(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+        window_days: int = DEFAULT_RESCHEDULE_WINDOW_DAYS,
+    ) -> AutoRescheduleResponse:
+        """
+        Automatically moves an existing meeting to the first open
+        slot within `window_days`, preserving its duration,
+        participants, external guests, and resource assignment. Only
+        the meeting owner may trigger this (mirrors the owner-only
+        rule already enforced by MeetingService.update_meeting).
+
+        Persists the change through MeetingService.update_meeting -
+        the same path used by a manual PUT /meetings/{id} edit - so
+        this gets identical Google Calendar sync, notification, and
+        cache-invalidation behavior with no duplicated logic.
+
+        Recurring meetings are not specially handled: this schema has
+        no series concept at all (a "recurring" meeting is just N
+        independent Meeting rows), so operating on a single
+        meeting_id can only ever move that one row, never a series.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found.",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the meeting owner can auto-reschedule it.",
+            )
+
+        previous_start_time = meeting.start_time
+        previous_end_time = meeting.end_time
+
+        participant_ids = [
+            participant.user_id
+            for participant in MeetingParticipantRepository.get_by_meeting(
+                db,
+                meeting_id,
+            )
+        ]
+
+        new_slot = SchedulerService._find_auto_reschedule_slot(
+            db,
+            meeting,
+            participant_ids,
+            window_days,
+        )
+
+        if new_slot is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    "No available slot was found for the owner, "
+                    "participants, and resource within the next "
+                    f"{window_days} day(s). The meeting was not "
+                    "changed."
+                ),
+            )
+
+        updated_meeting = MeetingService.update_meeting(
+            db,
+            meeting_id,
+            MeetingUpdate(
+                start_time=new_slot.start_time,
+                end_time=new_slot.end_time,
+            ),
+            current_user,
+        )
+
+        return AutoRescheduleResponse(
+            meeting=updated_meeting,
+            previous_start_time=previous_start_time,
+            previous_end_time=previous_end_time,
+            new_start_time=new_slot.start_time,
+            new_end_time=new_slot.end_time,
+            message=(
+                f"Meeting moved from "
+                f"{previous_start_time.isoformat()} to "
+                f"{new_slot.start_time.isoformat()}."
+            ),
+        )

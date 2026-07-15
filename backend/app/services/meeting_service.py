@@ -291,12 +291,23 @@ class MeetingService:
 
         meeting = MeetingRepository.update(db, meeting)
 
-        # Sync with Google Calendar
+        # Google Calendar sync is a best-effort side effect, isolated
+        # from the database transaction above (already committed): a
+        # Calendar failure must not turn an already-persisted update
+        # into a failed response, mirroring the pattern used by
+        # create_meeting.
         if meeting.google_event_id:
-            GoogleCalendarService.update_google_calendar_event(
-                db=db,
-                meeting=meeting,
-            )
+            try:
+                GoogleCalendarService.update_google_calendar_event(
+                    db=db,
+                    meeting=meeting,
+                )
+            except Exception:
+                logger.exception(
+                    "Google Calendar integration failed during "
+                    "meeting update. meeting_id=%s",
+                    meeting.id,
+                )
 
         # Best-effort: the update is already committed above.
         MeetingNotificationService.notify_meeting_updated(db, meeting)
