@@ -16,6 +16,9 @@ from app.api.meeting_intelligence_routes import (
     router as meeting_intelligence_router,
 )
 from app.api.meeting_note_routes import router as meeting_note_router
+from app.api.meeting_transcript_routes import (
+    router as meeting_transcript_router,
+)
 from app.api.meeting_summary_routes import router as meeting_summary_router
 from app.api.meeting_action_item_routes import (
     router as meeting_action_item_router,
@@ -90,6 +93,7 @@ app.include_router(google_router)
 app.include_router(ai_router)
 app.include_router(meeting_intelligence_router)
 app.include_router(meeting_note_router)
+app.include_router(meeting_transcript_router)
 app.include_router(meeting_summary_router)
 app.include_router(meeting_action_item_router)
 app.include_router(meeting_followup_email_router)
