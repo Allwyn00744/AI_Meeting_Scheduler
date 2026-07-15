@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Pencil, Trash2, Clock, DoorOpen, Sparkles, Mail,
   TriangleAlert, ArrowRight, X, UserPlus, Loader2, ListChecks, Copy,
-  Lightbulb,
+  Lightbulb, Upload, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
@@ -19,6 +19,7 @@ import { participantsApi } from "@/api/participants";
 import { usersApi } from "@/api/users";
 import { meetingIntelligenceApi } from "@/api/meetingIntelligence";
 import { meetingNotesApi } from "@/api/meetingNotes";
+import { meetingTranscriptApi } from "@/api/meetingTranscript";
 import { meetingSummaryApi } from "@/api/meetingSummary";
 import { meetingActionItemsApi } from "@/api/meetingActionItems";
 import { meetingFollowUpEmailApi } from "@/api/meetingFollowUpEmail";
@@ -29,7 +30,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 const TABS = [
-  "Details", "Participants", "Meeting Notes", "Meeting Summary", "Notes & Summary", "Action items",
+  "Details", "Participants", "Meeting Notes", "Transcript Upload", "Meeting Summary", "Notes & Summary", "Action items",
   "AI Action Items", "Follow-up Email", "Meeting Insights",
 ] as const;
 
@@ -187,6 +188,8 @@ export default function MeetingDetail() {
       )}
 
       {tab === "Meeting Notes" && <MeetingNotesTab meetingId={meeting.id} isOwner={isOwner} />}
+
+      {tab === "Transcript Upload" && <TranscriptUploadTab meetingId={meeting.id} isOwner={isOwner} />}
 
       {tab === "Meeting Summary" && <MeetingSummaryTab meetingId={meeting.id} isOwner={isOwner} />}
 
@@ -494,6 +497,87 @@ function MeetingNotesTab({ meetingId, isOwner }: { meetingId: number; isOwner: b
         confirmLabel="Delete note"
         loading={deleteNote.isPending}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+const TRANSCRIPT_ACCEPT = ".txt,.pdf,.docx";
+
+function TranscriptUploadTab({ meetingId, isOwner }: { meetingId: number; isOwner: boolean }) {
+  const { push } = useToast();
+  const queryClient = useQueryClient();
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [progress, setProgress] = React.useState<number | null>(null);
+  const [lastUploadedName, setLastUploadedName] = React.useState<string | null>(null);
+
+  const upload = useMutation({
+    mutationFn: (file: File) => meetingTranscriptApi.upload(meetingId, file, setProgress),
+    onSuccess: (_data, file) => {
+      queryClient.invalidateQueries({ queryKey: ["meeting-note", meetingId] });
+      setProgress(null);
+      setLastUploadedName(file.name);
+      push("success", "Transcript uploaded", "Meeting notes have been updated from the transcript.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    },
+    onError: (err) => {
+      setProgress(null);
+      push("error", "Couldn't upload transcript", getApiErrorMessage(err));
+    },
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLastUploadedName(null);
+    upload.mutate(file);
+  };
+
+  if (!isOwner) {
+    return (
+      <EmptyState
+        icon={<Upload className="h-5 w-5" />}
+        title="Transcript upload"
+        body="Only the meeting owner can upload transcripts. Once uploaded, the transcript replaces this meeting's notes for everyone to see."
+      />
+    );
+  }
+
+  return (
+    <div>
+      <p className="mb-1 text-xs font-medium text-slate-500">Upload a meeting transcript</p>
+      <p className="mb-4 text-sm text-slate-600">
+        Supported file types: .txt, .pdf, .docx (max 5 MB). Uploading replaces this meeting's notes with the
+        transcript's extracted text, which then feeds the AI Summary, Action Items, Follow-up Email, and Insights tabs.
+      </p>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={TRANSCRIPT_ACCEPT}
+        onChange={handleFileChange}
+        disabled={upload.isPending}
+        className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-brand-600 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-brand-700 disabled:opacity-60"
+      />
+
+      {upload.isPending && (
+        <div className="mt-4">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full bg-brand-600 transition-all"
+              style={{ width: `${progress ?? 0}%` }}
+            />
+          </div>
+          <p className="mt-1.5 text-xs text-slate-400">Uploading... {progress ?? 0}%</p>
+        </div>
+      )}
+
+      {!upload.isPending && lastUploadedName && (
+        <p className="mt-4 flex items-center gap-1.5 text-sm text-emerald-600">
+          <Check className="h-4 w-4" /> &ldquo;{lastUploadedName}&rdquo; uploaded — meeting notes updated.
+        </p>
+      )}
     </div>
   );
 }
