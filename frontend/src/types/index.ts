@@ -259,6 +259,21 @@ export interface OwnerActionItem {
   updated_at: string;
 }
 
+// ---- meeting intelligence v4, AI follow-up email --------------------------
+// (app/schemas/meeting_followup_email.py). Distinct from FollowUpDraft above,
+// which is the older AI pipeline's draft-only follow-up (never persisted).
+// Sourced from MeetingNoteRecord (V1) + AiMeetingSummary (V2), persisted to a
+// dedicated table, meeting_owner_followup_emails.
+
+export interface MeetingFollowUpEmail {
+  id: number;
+  meeting_id: number;
+  subject: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---- google (app/api/google_routes.py) -------------------------------------
 
 export interface GoogleStatus {

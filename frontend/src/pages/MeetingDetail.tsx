@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Pencil, Trash2, Clock, DoorOpen, Sparkles, Mail,
-  TriangleAlert, ArrowRight, X, UserPlus, Loader2, ListChecks,
+  TriangleAlert, ArrowRight, X, UserPlus, Loader2, ListChecks, Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
@@ -20,6 +20,7 @@ import { meetingIntelligenceApi } from "@/api/meetingIntelligence";
 import { meetingNotesApi } from "@/api/meetingNotes";
 import { meetingSummaryApi } from "@/api/meetingSummary";
 import { meetingActionItemsApi } from "@/api/meetingActionItems";
+import { meetingFollowUpEmailApi } from "@/api/meetingFollowUpEmail";
 import { aiApi } from "@/api/ai";
 import { getApiErrorMessage } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -27,7 +28,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   "Details", "Participants", "Meeting Notes", "Meeting Summary", "Notes & Summary", "Action items",
-  "AI Action Items",
+  "AI Action Items", "Follow-up Email",
 ] as const;
 
 function initialsOf(name: string) {
@@ -192,6 +193,8 @@ export default function MeetingDetail() {
       {tab === "Action items" && <ActionItemsTab meetingId={meeting.id} />}
 
       {tab === "AI Action Items" && <AiActionItemsTab meetingId={meeting.id} isOwner={isOwner} />}
+
+      {tab === "Follow-up Email" && <FollowUpEmailTab meetingId={meeting.id} isOwner={isOwner} />}
 
       <ConfirmDialog
         open={deleteOpen}
@@ -853,6 +856,100 @@ function AiActionItemsTab({ meetingId, isOwner }: { meetingId: number; isOwner: 
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function FollowUpEmailTab({ meetingId, isOwner }: { meetingId: number; isOwner: boolean }) {
+  const { push } = useToast();
+  const queryClient = useQueryClient();
+  const queryKey = ["followup-email", meetingId];
+
+  const { data: email, isLoading, isError, error } = useQuery({
+    queryKey,
+    queryFn: () => meetingFollowUpEmailApi.get(meetingId),
+    retry: false,
+  });
+
+  const emailMissing = isError && (error as { response?: { status?: number } })?.response?.status === 404;
+
+  const generate = useMutation({
+    mutationFn: () => meetingFollowUpEmailApi.generate(meetingId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+      push("success", "Follow-up email generated");
+    },
+    onError: (err) =>
+      push(
+        "error",
+        "Couldn't generate follow-up email",
+        getApiErrorMessage(err, "Generate a meeting summary first, then try again.")
+      ),
+  });
+
+  const copyToClipboard = async () => {
+    if (!email) return;
+    try {
+      await navigator.clipboard.writeText(`Subject: ${email.subject}\n\n${email.body}`);
+      push("success", "Copied to clipboard");
+    } catch {
+      push("error", "Couldn't copy to clipboard");
+    }
+  };
+
+  if (isLoading) return <div className="h-32 animate-pulse rounded-xl bg-slate-100" />;
+
+  if (isError && !emailMissing) {
+    return (
+      <EmptyState
+        icon={<TriangleAlert className="h-5 w-5" />}
+        title="Couldn't load follow-up email"
+        body={getApiErrorMessage(error)}
+      />
+    );
+  }
+
+  return (
+    <div>
+      {email && !emailMissing ? (
+        <div className="rounded-xl border border-slate-200 p-5">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-brand-700">
+            <Mail className="h-4 w-4" /> AI-generated follow-up email
+          </p>
+          <p className="mb-1 text-xs font-medium text-slate-500">Subject</p>
+          <p className="mb-3 text-sm font-medium text-slate-900">{email.subject}</p>
+          <p className="mb-1 text-xs font-medium text-slate-500">Body</p>
+          <p className="whitespace-pre-wrap text-sm text-slate-800">{email.body}</p>
+          <p className="mt-3 text-xs text-slate-400">
+            Last updated {new Date(email.updated_at).toLocaleString()}
+          </p>
+        </div>
+      ) : (
+        <EmptyState
+          icon={<Mail className="h-5 w-5" />}
+          title="No follow-up email yet"
+          body={
+            isOwner
+              ? "Generate a follow-up email from this meeting's summary."
+              : "The meeting owner hasn't generated a follow-up email yet."
+          }
+        />
+      )}
+
+      <div className="mt-3 flex gap-2">
+        {isOwner && (
+          <Button onClick={() => generate.mutate()} loading={generate.isPending}>
+            <Sparkles className="h-4 w-4" /> {email && !emailMissing ? "Regenerate" : "Generate follow-up email"}
+          </Button>
+        )}
+        {email && !emailMissing && (
+          <Button variant="secondary" onClick={copyToClipboard}>
+            <Copy className="h-4 w-4" /> Copy
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
