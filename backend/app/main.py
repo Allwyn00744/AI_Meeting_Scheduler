@@ -17,6 +17,9 @@ from app.api.meeting_intelligence_routes import (
 )
 from app.api.meeting_note_routes import router as meeting_note_router
 from app.api.meeting_summary_routes import router as meeting_summary_router
+from app.api.meeting_action_item_routes import (
+    router as meeting_action_item_router,
+)
 from app.api.analytics_routes import router as analytics_router
 
 from app.core.config import settings
@@ -82,4 +85,5 @@ app.include_router(ai_router)
 app.include_router(meeting_intelligence_router)
 app.include_router(meeting_note_router)
 app.include_router(meeting_summary_router)
+app.include_router(meeting_action_item_router)
 app.include_router(analytics_router)

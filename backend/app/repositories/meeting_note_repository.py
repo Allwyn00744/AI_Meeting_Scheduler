@@ -24,6 +24,17 @@ class MeetingNoteRepository:
         )
 
     @staticmethod
+    def get_by_id(
+        db: Session,
+        note_id: int,
+    ) -> MeetingNote | None:
+        return (
+            db.query(MeetingNote)
+            .filter(MeetingNote.id == note_id)
+            .first()
+        )
+
+    @staticmethod
     def update(db: Session, note: MeetingNote) -> MeetingNote:
         db.commit()
         db.refresh(note)

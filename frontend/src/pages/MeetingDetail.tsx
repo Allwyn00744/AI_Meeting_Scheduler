@@ -3,10 +3,10 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Pencil, Trash2, Clock, DoorOpen, Sparkles, Mail,
-  TriangleAlert, ArrowRight, X, UserPlus, Loader2,
+  TriangleAlert, ArrowRight, X, UserPlus, Loader2, ListChecks,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { StatusBadge } from "@/components/ui/Badge";
+import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Dialog } from "@/components/ui/Dialog";
@@ -19,6 +19,7 @@ import { usersApi } from "@/api/users";
 import { meetingIntelligenceApi } from "@/api/meetingIntelligence";
 import { meetingNotesApi } from "@/api/meetingNotes";
 import { meetingSummaryApi } from "@/api/meetingSummary";
+import { meetingActionItemsApi } from "@/api/meetingActionItems";
 import { aiApi } from "@/api/ai";
 import { getApiErrorMessage } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   "Details", "Participants", "Meeting Notes", "Meeting Summary", "Notes & Summary", "Action items",
+  "AI Action Items",
 ] as const;
 
 function initialsOf(name: string) {
@@ -188,6 +190,8 @@ export default function MeetingDetail() {
       {tab === "Notes & Summary" && <NotesSummaryTab meetingId={meeting.id} />}
 
       {tab === "Action items" && <ActionItemsTab meetingId={meeting.id} />}
+
+      {tab === "AI Action Items" && <AiActionItemsTab meetingId={meeting.id} isOwner={isOwner} />}
 
       <ConfirmDialog
         open={deleteOpen}
@@ -717,6 +721,138 @@ function ActionItemsTab({ meetingId }: { meetingId: number }) {
           </div>
         </label>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+const PRIORITY_VARIANT: Record<string, "danger" | "info" | "neutral"> = {
+  High: "danger",
+  Medium: "info",
+  Low: "neutral",
+};
+
+function AiActionItemsTab({ meetingId, isOwner }: { meetingId: number; isOwner: boolean }) {
+  const { push } = useToast();
+  const queryClient = useQueryClient();
+  const queryKey = ["ai-action-items", meetingId];
+
+  const { data: items, isLoading, isError, error } = useQuery({
+    queryKey,
+    queryFn: () => meetingActionItemsApi.list(meetingId),
+    retry: false,
+  });
+
+  const itemsMissing = isError && (error as { response?: { status?: number } })?.response?.status === 404;
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey });
+
+  const generate = useMutation({
+    mutationFn: () => meetingActionItemsApi.generate(meetingId),
+    onSuccess: () => {
+      invalidate();
+      push("success", "Action items generated");
+    },
+    onError: (err) =>
+      push(
+        "error",
+        "Couldn't generate action items",
+        getApiErrorMessage(err, "Add a meeting note first, then try again.")
+      ),
+  });
+
+  const toggleStatus = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: "Pending" | "Completed" }) =>
+      meetingActionItemsApi.updateStatus(id, status),
+    onSuccess: invalidate,
+    onError: (err) => push("error", "Couldn't update status", getApiErrorMessage(err)),
+  });
+
+  const removeItem = useMutation({
+    mutationFn: (id: number) => meetingActionItemsApi.remove(id),
+    onSuccess: () => {
+      invalidate();
+      push("success", "Action item deleted");
+    },
+    onError: (err) => push("error", "Couldn't delete action item", getApiErrorMessage(err)),
+  });
+
+  if (isLoading) return <div className="h-32 animate-pulse rounded-xl bg-slate-100" />;
+
+  if (isError && !itemsMissing) {
+    return (
+      <EmptyState
+        icon={<TriangleAlert className="h-5 w-5" />}
+        title="Couldn't load action items"
+        body={getApiErrorMessage(error)}
+      />
+    );
+  }
+
+  const effectiveItems = itemsMissing ? [] : (items ?? []);
+
+  return (
+    <div>
+      {isOwner && (
+        <div className="mb-4">
+          <Button onClick={() => generate.mutate()} loading={generate.isPending}>
+            <Sparkles className="h-4 w-4" /> {effectiveItems.length > 0 ? "Regenerate" : "Generate action items"}
+          </Button>
+        </div>
+      )}
+
+      {effectiveItems.length === 0 ? (
+        <EmptyState
+          icon={<ListChecks className="h-5 w-5" />}
+          title="No action items yet"
+          body={
+            isOwner
+              ? "Generate action items from this meeting's note."
+              : "The meeting owner hasn't generated action items yet."
+          }
+        />
+      ) : (
+        <div className="space-y-2">
+          {effectiveItems.map((item) => (
+            <div key={item.id} className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2.5">
+              <input
+                type="checkbox"
+                checked={item.status === "Completed"}
+                disabled={!isOwner || toggleStatus.isPending}
+                onChange={(e) =>
+                  toggleStatus.mutate({
+                    id: item.id,
+                    status: e.target.checked ? "Completed" : "Pending",
+                  })
+                }
+                className="mt-0.5 h-4 w-4 accent-brand-600"
+              />
+              <div className="min-w-0 flex-1">
+                <p className={cn("text-sm", item.status === "Completed" ? "text-slate-400 line-through" : "text-slate-800")}>
+                  {item.task}
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                  <span>{item.assignee ?? "Unassigned"}</span>
+                  {item.due_date && <span>Due {item.due_date}</span>}
+                  {item.priority && (
+                    <Badge variant={PRIORITY_VARIANT[item.priority] ?? "neutral"}>{item.priority}</Badge>
+                  )}
+                </div>
+              </div>
+              {isOwner && (
+                <button
+                  onClick={() => removeItem.mutate(item.id)}
+                  className="text-slate-400 hover:text-red-500"
+                  aria-label="Delete action item"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
