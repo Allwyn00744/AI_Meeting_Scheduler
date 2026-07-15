@@ -14,4 +14,5 @@ from app.models.meeting_owner_note_summary import MeetingOwnerNoteSummary
 from app.models.meeting_action_item import MeetingActionItem
 from app.models.meeting_owner_action_item import MeetingOwnerActionItem
 from app.models.meeting_owner_followup_email import MeetingOwnerFollowUpEmail
+from app.models.meeting_owner_insight import MeetingOwnerInsight
 from app.models.analytics_event import AnalyticsEvent

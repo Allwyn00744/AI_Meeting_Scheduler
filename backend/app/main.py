@@ -23,6 +23,9 @@ from app.api.meeting_action_item_routes import (
 from app.api.meeting_followup_email_routes import (
     router as meeting_followup_email_router,
 )
+from app.api.meeting_insight_routes import (
+    router as meeting_insight_router,
+)
 from app.api.analytics_routes import router as analytics_router
 
 from app.core.config import settings
@@ -90,4 +93,5 @@ app.include_router(meeting_note_router)
 app.include_router(meeting_summary_router)
 app.include_router(meeting_action_item_router)
 app.include_router(meeting_followup_email_router)
+app.include_router(meeting_insight_router)
 app.include_router(analytics_router)
