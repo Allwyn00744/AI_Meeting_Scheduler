@@ -1,15 +1,26 @@
 import * as React from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Sparkles } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Sparkles, Zap } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
 import { meetingsApi } from "@/api/meetings";
 import { schedulerApi } from "@/api/scheduler";
 import { getApiErrorMessage } from "@/api/client";
+import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
-import type { SuggestedSlot } from "@/types";
+import type { AutoRescheduleResponse, SuggestedSlot } from "@/types";
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 /** Reached from Meeting Detail — uses the real GET /scheduler/meetings/{id}/reschedule-suggestions endpoint. */
 export default function RescheduleMeeting() {
@@ -17,9 +28,11 @@ export default function RescheduleMeeting() {
   const meetingId = Number(id);
   const navigate = useNavigate();
   const { push } = useToast();
+  const { user: me } = useAuth();
   const queryClient = useQueryClient();
   const [chosen, setChosen] = React.useState<SuggestedSlot | null>(null);
   const [done, setDone] = React.useState(false);
+  const [autoResult, setAutoResult] = React.useState<AutoRescheduleResponse | null>(null);
 
   const { data: meeting } = useQuery({
     queryKey: ["meeting", meetingId],
@@ -38,6 +51,8 @@ export default function RescheduleMeeting() {
     enabled: Number.isFinite(meetingId),
   });
 
+  const isOwner = Boolean(me && meeting && me.id === meeting.owner_id);
+
   const applyReschedule = useMutation({
     mutationFn: () =>
       meetingsApi.update(meetingId, {
@@ -50,6 +65,19 @@ export default function RescheduleMeeting() {
       setDone(true);
     },
     onError: (err) => push("error", "Couldn't reschedule", getApiErrorMessage(err)),
+  });
+
+  const autoResolve = useMutation({
+    mutationFn: () => schedulerApi.autoReschedule(meetingId, 7),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["meeting", meetingId] });
+      queryClient.invalidateQueries({ queryKey: ["meetings"] });
+      queryClient.invalidateQueries({ queryKey: ["kpis"] });
+      setAutoResult(result);
+      setDone(true);
+      push("success", "Meeting rescheduled", result.message);
+    },
+    onError: (err) => push("error", "Couldn't auto-reschedule", getApiErrorMessage(err)),
   });
 
   return (
@@ -65,7 +93,11 @@ export default function RescheduleMeeting() {
         <EmptyState
           icon={<CheckCircle2 className="h-5 w-5" />}
           title="Meeting rescheduled"
-          body={`"${meeting?.title}" has been moved to the new time.`}
+          body={
+            autoResult
+              ? `"${meeting?.title}" moved from ${formatDateTime(autoResult.previous_start_time)} to ${formatDateTime(autoResult.new_start_time)}.`
+              : `"${meeting?.title}" has been moved to the new time.`
+          }
           actionLabel="Back to meeting"
           onAction={() => navigate(`/meetings/${meetingId}`)}
         />
@@ -79,6 +111,17 @@ export default function RescheduleMeeting() {
         />
       ) : (
         <>
+          {isOwner && (
+            <Button
+              className="mb-4 w-full"
+              variant="secondary"
+              loading={autoResolve.isPending}
+              onClick={() => autoResolve.mutate()}
+            >
+              <Zap className="mr-1.5 h-4 w-4" />
+              {autoResolve.isPending ? "Finding a new time…" : "Auto-resolve for me"}
+            </Button>
+          )}
           <p className="mb-2 text-xs font-medium text-slate-500">
             AI-suggested times over the next 7 days, checked against your existing meetings
           </p>

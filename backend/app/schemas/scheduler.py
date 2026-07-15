@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.schemas.external_guest import normalize_external_guest_emails
+from app.schemas.meeting import MeetingResponse
 
 # Hard ceiling on how many occurrences a single recurring-series
 # request can create. Without this, a caller could pass an
@@ -80,3 +81,14 @@ class SuggestedSlot(BaseModel):
 
 class SuggestSlotsResponse(BaseModel):
     slots: list[SuggestedSlot]
+
+
+class AutoRescheduleResponse(BaseModel):
+    meeting: MeetingResponse
+    previous_start_time: datetime
+    previous_end_time: datetime
+    new_start_time: datetime
+    new_end_time: datetime
+    message: str
+
+    model_config = ConfigDict(from_attributes=True)
