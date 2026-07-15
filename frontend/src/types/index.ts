@@ -189,6 +189,27 @@ export interface MeetingNotes {
   updated_at: string;
 }
 
+// ---- meeting notes v1, manually authored (app/schemas/meeting_note.py) ----
+// Distinct from MeetingNotes above, which is AI transcript/summary-pipeline
+// content owned by app/services/meeting_intelligence_service.py.
+
+export interface MeetingNoteRecord {
+  id: number;
+  meeting_id: number;
+  content: string;
+  created_by_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MeetingNoteCreatePayload {
+  content: string;
+}
+
+export interface MeetingNoteUpdatePayload {
+  content: string;
+}
+
 export interface MeetingSummary {
   id: number;
   meeting_id: number;
