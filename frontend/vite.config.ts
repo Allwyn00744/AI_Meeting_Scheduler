@@ -27,6 +27,7 @@ export default defineConfig({
       "/google": "http://localhost:8000",
       "/ai": "http://localhost:8000",
       "/action-items": "http://localhost:8000",
+      "/meeting-intelligence": "http://localhost:8000",
     },
   },
 });

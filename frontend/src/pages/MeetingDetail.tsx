@@ -17,12 +17,13 @@ import { meetingsApi } from "@/api/meetings";
 import { participantsApi } from "@/api/participants";
 import { usersApi } from "@/api/users";
 import { meetingIntelligenceApi } from "@/api/meetingIntelligence";
+import { meetingNotesApi } from "@/api/meetingNotes";
 import { aiApi } from "@/api/ai";
 import { getApiErrorMessage } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
-const TABS = ["Details", "Participants", "Notes & Summary", "Action items"] as const;
+const TABS = ["Details", "Participants", "Meeting Notes", "Notes & Summary", "Action items"] as const;
 
 function initialsOf(name: string) {
   const parts = name.trim().split(/\s+/);
@@ -177,6 +178,8 @@ export default function MeetingDetail() {
         <ParticipantsTab meetingId={meeting.id} isOwner={isOwner} userMap={userMap} />
       )}
 
+      {tab === "Meeting Notes" && <MeetingNotesTab meetingId={meeting.id} isOwner={isOwner} />}
+
       {tab === "Notes & Summary" && <NotesSummaryTab meetingId={meeting.id} />}
 
       {tab === "Action items" && <ActionItemsTab meetingId={meeting.id} />}
@@ -325,6 +328,156 @@ function ParticipantsTab({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function MeetingNotesTab({ meetingId, isOwner }: { meetingId: number; isOwner: boolean }) {
+  const { push } = useToast();
+  const queryClient = useQueryClient();
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
+  const [deleteOpen, setDeleteOpen] = React.useState(false);
+
+  const { data: note, isLoading, isError, error } = useQuery({
+    queryKey: ["meeting-note", meetingId],
+    queryFn: () => meetingNotesApi.get(meetingId),
+    retry: false,
+  });
+
+  const noteMissing = isError && (error as { response?: { status?: number } })?.response?.status === 404;
+  // React Query keeps the last successful `data` around through a
+  // subsequent *failed* background refetch (e.g. the refetch after
+  // deleting returns 404) instead of clearing it - so `note` alone
+  // would still show the just-deleted note. Treat a confirmed-missing
+  // note as absent regardless of what's still cached.
+  const effectiveNote = noteMissing ? undefined : note;
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["meeting-note", meetingId] });
+
+  const createNote = useMutation({
+    mutationFn: () => meetingNotesApi.create(meetingId, { content: draft }),
+    onSuccess: () => {
+      invalidate();
+      setIsEditing(false);
+      push("success", "Note saved");
+    },
+    onError: (err) => push("error", "Couldn't save note", getApiErrorMessage(err)),
+  });
+
+  const updateNote = useMutation({
+    mutationFn: () => meetingNotesApi.update(meetingId, { content: draft }),
+    onSuccess: () => {
+      invalidate();
+      setIsEditing(false);
+      push("success", "Note updated");
+    },
+    onError: (err) => push("error", "Couldn't update note", getApiErrorMessage(err)),
+  });
+
+  const deleteNote = useMutation({
+    mutationFn: () => meetingNotesApi.remove(meetingId),
+    onSuccess: () => {
+      invalidate();
+      setDeleteOpen(false);
+      setIsEditing(false);
+      push("success", "Note deleted");
+    },
+    onError: (err) => push("error", "Couldn't delete note", getApiErrorMessage(err)),
+  });
+
+  if (isLoading) return <div className="h-32 animate-pulse rounded-xl bg-slate-100" />;
+
+  if (isError && !noteMissing) {
+    return (
+      <EmptyState
+        icon={<TriangleAlert className="h-5 w-5" />}
+        title="Couldn't load notes"
+        body={getApiErrorMessage(error)}
+      />
+    );
+  }
+
+  const startEditing = () => {
+    setDraft(effectiveNote?.content ?? "");
+    setIsEditing(true);
+  };
+
+  if (!isOwner) {
+    if (!effectiveNote) {
+      return <EmptyState icon={<Pencil className="h-5 w-5" />} title="No notes yet" body="The meeting owner hasn't added notes." />;
+    }
+    return (
+      <div className="rounded-xl border border-slate-200 p-5">
+        <p className="whitespace-pre-wrap text-sm text-slate-800">{effectiveNote.content}</p>
+        <p className="mt-3 text-xs text-slate-400">Last updated {new Date(effectiveNote.updated_at).toLocaleString()}</p>
+      </div>
+    );
+  }
+
+  if (isEditing) {
+    return (
+      <div>
+        <Textarea
+          className="h-40"
+          placeholder="Write meeting notes..."
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <div className="mt-3 flex gap-2">
+          <Button
+            onClick={() => (effectiveNote ? updateNote.mutate() : createNote.mutate())}
+            loading={createNote.isPending || updateNote.isPending}
+            disabled={!draft.trim()}
+          >
+            Save
+          </Button>
+          <Button variant="secondary" onClick={() => setIsEditing(false)}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!effectiveNote) {
+    return (
+      <EmptyState
+        icon={<Pencil className="h-5 w-5" />}
+        title="No notes yet"
+        body="Add notes for this meeting."
+        actionLabel="Add notes"
+        onAction={startEditing}
+      />
+    );
+  }
+
+  return (
+    <div>
+      <div className="rounded-xl border border-slate-200 p-5">
+        <p className="whitespace-pre-wrap text-sm text-slate-800">{effectiveNote.content}</p>
+        <p className="mt-3 text-xs text-slate-400">Last updated {new Date(effectiveNote.updated_at).toLocaleString()}</p>
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Button variant="secondary" size="sm" onClick={startEditing}>
+          <Pencil className="h-3.5 w-3.5" /> Edit
+        </Button>
+        <Button variant="danger" size="sm" onClick={() => setDeleteOpen(true)}>
+          <Trash2 className="h-3.5 w-3.5" /> Delete
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={() => deleteNote.mutate()}
+        title="Delete this note?"
+        description="This permanently removes the meeting note."
+        confirmLabel="Delete note"
+        loading={deleteNote.isPending}
+      />
     </div>
   );
 }
