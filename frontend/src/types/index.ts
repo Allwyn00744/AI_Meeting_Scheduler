@@ -274,6 +274,25 @@ export interface MeetingFollowUpEmail {
   updated_at: string;
 }
 
+// ---- meeting intelligence v5, AI meeting insights --------------------------
+// (app/schemas/meeting_insight.py). Sourced from MeetingNoteRecord (V1) +
+// AiMeetingSummary (V2), optionally informed by V3/V4, persisted to a
+// dedicated table, meeting_owner_insights.
+
+export type MeetingInsightStatus = "On Track" | "At Risk" | "Blocked";
+
+export interface MeetingInsight {
+  id: number;
+  meeting_id: number;
+  key_points: string[];
+  decisions: string[];
+  risks: string[];
+  next_steps: string[];
+  overall_status: MeetingInsightStatus;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---- google (app/api/google_routes.py) -------------------------------------
 
 export interface GoogleStatus {

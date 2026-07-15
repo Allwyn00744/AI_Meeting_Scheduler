@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Pencil, Trash2, Clock, DoorOpen, Sparkles, Mail,
   TriangleAlert, ArrowRight, X, UserPlus, Loader2, ListChecks, Copy,
+  Lightbulb,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
@@ -21,6 +22,7 @@ import { meetingNotesApi } from "@/api/meetingNotes";
 import { meetingSummaryApi } from "@/api/meetingSummary";
 import { meetingActionItemsApi } from "@/api/meetingActionItems";
 import { meetingFollowUpEmailApi } from "@/api/meetingFollowUpEmail";
+import { meetingInsightsApi } from "@/api/meetingInsights";
 import { aiApi } from "@/api/ai";
 import { getApiErrorMessage } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -28,7 +30,7 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   "Details", "Participants", "Meeting Notes", "Meeting Summary", "Notes & Summary", "Action items",
-  "AI Action Items", "Follow-up Email",
+  "AI Action Items", "Follow-up Email", "Meeting Insights",
 ] as const;
 
 function initialsOf(name: string) {
@@ -195,6 +197,8 @@ export default function MeetingDetail() {
       {tab === "AI Action Items" && <AiActionItemsTab meetingId={meeting.id} isOwner={isOwner} />}
 
       {tab === "Follow-up Email" && <FollowUpEmailTab meetingId={meeting.id} isOwner={isOwner} />}
+
+      {tab === "Meeting Insights" && <MeetingInsightsTab meetingId={meeting.id} isOwner={isOwner} />}
 
       <ConfirmDialog
         open={deleteOpen}
@@ -950,6 +954,112 @@ function FollowUpEmailTab({ meetingId, isOwner }: { meetingId: number; isOwner: 
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+const INSIGHT_STATUS_VARIANT: Record<string, "success" | "warning" | "danger" | "neutral"> = {
+  "On Track": "success",
+  "At Risk": "warning",
+  "Blocked": "danger",
+};
+
+function InsightList({ title, items }: { title: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-medium text-slate-500">{title}</p>
+      <ul className="list-disc space-y-1 pl-5">
+        {items.map((item, i) => (
+          <li key={i} className="text-sm text-slate-800">
+            {item}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function MeetingInsightsTab({ meetingId, isOwner }: { meetingId: number; isOwner: boolean }) {
+  const { push } = useToast();
+  const queryClient = useQueryClient();
+  const queryKey = ["meeting-insights", meetingId];
+
+  const { data: insight, isLoading, isError, error } = useQuery({
+    queryKey,
+    queryFn: () => meetingInsightsApi.get(meetingId),
+    retry: false,
+  });
+
+  const insightMissing = isError && (error as { response?: { status?: number } })?.response?.status === 404;
+
+  const generate = useMutation({
+    mutationFn: () => meetingInsightsApi.generate(meetingId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+      push("success", "Insights generated");
+    },
+    onError: (err) =>
+      push(
+        "error",
+        "Couldn't generate insights",
+        getApiErrorMessage(err, "Generate a meeting summary first, then try again.")
+      ),
+  });
+
+  if (isLoading) return <div className="h-32 animate-pulse rounded-xl bg-slate-100" />;
+
+  if (isError && !insightMissing) {
+    return (
+      <EmptyState
+        icon={<TriangleAlert className="h-5 w-5" />}
+        title="Couldn't load insights"
+        body={getApiErrorMessage(error)}
+      />
+    );
+  }
+
+  return (
+    <div>
+      {insight && !insightMissing ? (
+        <div className="space-y-4 rounded-xl border border-slate-200 p-5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-brand-700">
+              <Lightbulb className="h-4 w-4" /> AI-generated insights
+            </p>
+            <Badge variant={INSIGHT_STATUS_VARIANT[insight.overall_status] ?? "neutral"}>
+              {insight.overall_status}
+            </Badge>
+          </div>
+          <InsightList title="Key Points" items={insight.key_points} />
+          <InsightList title="Decisions" items={insight.decisions} />
+          <InsightList title="Risks" items={insight.risks} />
+          <InsightList title="Next Steps" items={insight.next_steps} />
+          <p className="text-xs text-slate-400">
+            Last updated {new Date(insight.updated_at).toLocaleString()}
+          </p>
+        </div>
+      ) : (
+        <EmptyState
+          icon={<Lightbulb className="h-5 w-5" />}
+          title="No insights yet"
+          body={
+            isOwner
+              ? "Generate AI insights from this meeting's summary."
+              : "The meeting owner hasn't generated insights yet."
+          }
+        />
+      )}
+
+      {isOwner && (
+        <div className="mt-3">
+          <Button onClick={() => generate.mutate()} loading={generate.isPending}>
+            <Sparkles className="h-4 w-4" /> {insight && !insightMissing ? "Regenerate" : "Generate insights"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
