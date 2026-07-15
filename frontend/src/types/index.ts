@@ -237,6 +237,28 @@ export interface AiMeetingSummary {
   updated_at: string;
 }
 
+// ---- meeting intelligence v3, AI action item extraction --------------------
+// (app/schemas/meeting_action_item.py). Distinct from ActionItem above, which
+// is the older AI pipeline's action item (meeting_action_items, keyed off
+// meeting_summaries.id). Sourced from MeetingNoteRecord (Meeting Notes V1),
+// persisted to a dedicated table, meeting_owner_action_items.
+
+export type OwnerActionItemPriority = "Low" | "Medium" | "High";
+export type OwnerActionItemStatus = "Pending" | "Completed";
+
+export interface OwnerActionItem {
+  id: number;
+  meeting_id: number;
+  meeting_note_id: number;
+  task: string;
+  assignee: string | null;
+  due_date: string | null;
+  priority: OwnerActionItemPriority | null;
+  status: OwnerActionItemStatus;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---- google (app/api/google_routes.py) -------------------------------------
 
 export interface GoogleStatus {
