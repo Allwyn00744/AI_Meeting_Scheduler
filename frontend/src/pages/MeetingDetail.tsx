@@ -18,12 +18,15 @@ import { participantsApi } from "@/api/participants";
 import { usersApi } from "@/api/users";
 import { meetingIntelligenceApi } from "@/api/meetingIntelligence";
 import { meetingNotesApi } from "@/api/meetingNotes";
+import { meetingSummaryApi } from "@/api/meetingSummary";
 import { aiApi } from "@/api/ai";
 import { getApiErrorMessage } from "@/api/client";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
-const TABS = ["Details", "Participants", "Meeting Notes", "Notes & Summary", "Action items"] as const;
+const TABS = [
+  "Details", "Participants", "Meeting Notes", "Meeting Summary", "Notes & Summary", "Action items",
+] as const;
 
 function initialsOf(name: string) {
   const parts = name.trim().split(/\s+/);
@@ -179,6 +182,8 @@ export default function MeetingDetail() {
       )}
 
       {tab === "Meeting Notes" && <MeetingNotesTab meetingId={meeting.id} isOwner={isOwner} />}
+
+      {tab === "Meeting Summary" && <MeetingSummaryTab meetingId={meeting.id} isOwner={isOwner} />}
 
       {tab === "Notes & Summary" && <NotesSummaryTab meetingId={meeting.id} />}
 
@@ -478,6 +483,81 @@ function MeetingNotesTab({ meetingId, isOwner }: { meetingId: number; isOwner: b
         confirmLabel="Delete note"
         loading={deleteNote.isPending}
       />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function MeetingSummaryTab({ meetingId, isOwner }: { meetingId: number; isOwner: boolean }) {
+  const { push } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: summary, isLoading, isError, error } = useQuery({
+    queryKey: ["ai-meeting-summary", meetingId],
+    queryFn: () => meetingSummaryApi.get(meetingId),
+    retry: false,
+  });
+
+  const summaryMissing = isError && (error as { response?: { status?: number } })?.response?.status === 404;
+
+  const generateSummary = useMutation({
+    mutationFn: () => meetingSummaryApi.generate(meetingId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai-meeting-summary", meetingId] });
+      push("success", "Summary generated");
+    },
+    onError: (err) =>
+      push(
+        "error",
+        "Couldn't generate summary",
+        getApiErrorMessage(err, "Add a meeting note first, then try again.")
+      ),
+  });
+
+  if (isLoading) return <div className="h-32 animate-pulse rounded-xl bg-slate-100" />;
+
+  if (isError && !summaryMissing) {
+    return (
+      <EmptyState
+        icon={<TriangleAlert className="h-5 w-5" />}
+        title="Couldn't load summary"
+        body={getApiErrorMessage(error)}
+      />
+    );
+  }
+
+  return (
+    <div>
+      {summary && !summaryMissing ? (
+        <div className="rounded-xl bg-brand-50 p-5">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-brand-700">
+            <Sparkles className="h-4 w-4" /> AI-generated summary
+          </p>
+          <p className="whitespace-pre-wrap text-sm text-slate-800">{summary.summary}</p>
+          <p className="mt-3 text-xs text-slate-400">
+            Last updated {new Date(summary.updated_at).toLocaleString()}
+          </p>
+        </div>
+      ) : (
+        <EmptyState
+          icon={<Sparkles className="h-5 w-5" />}
+          title="No summary yet"
+          body={
+            isOwner
+              ? "Generate an AI summary from this meeting's note."
+              : "The meeting owner hasn't generated a summary yet."
+          }
+        />
+      )}
+
+      {isOwner && (
+        <div className="mt-3">
+          <Button onClick={() => generateSummary.mutate()} loading={generateSummary.isPending}>
+            <Sparkles className="h-4 w-4" /> {summary && !summaryMissing ? "Regenerate" : "Generate Summary"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -224,6 +224,19 @@ export interface FollowUpDraft {
   email_body: string;
 }
 
+// ---- meeting intelligence v2, AI summary (app/schemas/meeting_summary.py) --
+// Sourced from MeetingNoteRecord (Meeting Notes V1), distinct from
+// MeetingSummary above, which is sourced from freeform notes text.
+
+export interface AiMeetingSummary {
+  id: number;
+  meeting_id: number;
+  summary: string;
+  generated_by_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---- google (app/api/google_routes.py) -------------------------------------
 
 export interface GoogleStatus {
