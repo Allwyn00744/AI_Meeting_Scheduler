@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Calendar, CheckCircle2, MailWarning } from "lucide-react";
+import { Calendar, CheckCircle2, MailWarning, Video } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
@@ -10,9 +10,11 @@ import { useToast } from "@/components/ui/Toast";
 import { useAuth } from "@/hooks/useAuth";
 import { usersApi } from "@/api/users";
 import { googleApi } from "@/api/google";
+import { outlookApi } from "@/api/outlook";
+import { zoomApi } from "@/api/zoom";
 import { getApiErrorMessage } from "@/api/client";
 
-const TABS = ["Profile", "Google Calendar", "Security"] as const;
+const TABS = ["Profile", "Google Calendar", "Outlook Calendar", "Zoom Meetings", "Security"] as const;
 
 function initialsOf(name: string) {
   const parts = name.trim().split(/\s+/);
@@ -81,6 +83,80 @@ export default function Settings() {
 
     const next = new URLSearchParams(searchParams);
     next.delete("google");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const { data: outlookStatus, isLoading: outlookStatusLoading, refetch: refetchOutlook } = useQuery({
+    queryKey: ["outlook-status"],
+    queryFn: outlookApi.status,
+  });
+  const connectOutlook = useMutation({
+    mutationFn: outlookApi.connect,
+    onSuccess: (data) => {
+      window.location.href = data.authorization_url;
+    },
+    onError: (err) => push("error", "Couldn't connect Outlook", getApiErrorMessage(err)),
+  });
+  const disconnectOutlook = useMutation({
+    mutationFn: outlookApi.disconnect,
+    onSuccess: () => {
+      push("success", "Outlook Calendar disconnected");
+      refetchOutlook();
+    },
+    onError: (err) => push("error", "Couldn't disconnect", getApiErrorMessage(err)),
+  });
+
+  React.useEffect(() => {
+    const outlookResult = searchParams.get("outlook");
+    if (!outlookResult) return;
+
+    if (outlookResult === "connected") {
+      push("success", "Outlook Calendar connected");
+      refetchOutlook();
+    } else if (outlookResult === "error") {
+      push("error", "Couldn't connect Outlook Calendar", "Please try again.");
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("outlook");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const { data: zoomStatus, isLoading: zoomStatusLoading, refetch: refetchZoom } = useQuery({
+    queryKey: ["zoom-status"],
+    queryFn: zoomApi.status,
+  });
+  const connectZoom = useMutation({
+    mutationFn: zoomApi.connect,
+    onSuccess: (data) => {
+      window.location.href = data.authorization_url;
+    },
+    onError: (err) => push("error", "Couldn't connect Zoom", getApiErrorMessage(err)),
+  });
+  const disconnectZoom = useMutation({
+    mutationFn: zoomApi.disconnect,
+    onSuccess: () => {
+      push("success", "Zoom disconnected");
+      refetchZoom();
+    },
+    onError: (err) => push("error", "Couldn't disconnect", getApiErrorMessage(err)),
+  });
+
+  React.useEffect(() => {
+    const zoomResult = searchParams.get("zoom");
+    if (!zoomResult) return;
+
+    if (zoomResult === "connected") {
+      push("success", "Zoom connected");
+      refetchZoom();
+    } else if (zoomResult === "error") {
+      push("error", "Couldn't connect Zoom", "Please try again.");
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("zoom");
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -181,6 +257,92 @@ export default function Settings() {
                 onClick={() => (window.location.href = googleApi.connectRedirectUrl())}
               >
                 Connect Google
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {tab === "Outlook Calendar" && (
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
+              <Calendar className="h-4 w-4 text-slate-600" />
+            </div>
+            <div className="flex-1">
+              <p className="font-medium text-slate-900">Outlook Calendar</p>
+              <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                {outlookStatusLoading ? (
+                  "Checking connection..."
+                ) : outlookStatus?.connected ? (
+                  <>
+                    <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Connected
+                  </>
+                ) : (
+                  <>
+                    <MailWarning className="h-3 w-3 text-amber-600" /> Not connected
+                  </>
+                )}
+              </p>
+            </div>
+            {outlookStatus?.connected ? (
+              <Button
+                variant="danger"
+                onClick={() => disconnectOutlook.mutate()}
+                loading={disconnectOutlook.isPending}
+              >
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                disabled={outlookStatusLoading}
+                onClick={() => connectOutlook.mutate()}
+                loading={connectOutlook.isPending}
+              >
+                Connect Outlook
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {tab === "Zoom Meetings" && (
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
+              <Video className="h-4 w-4 text-slate-600" />
+            </div>
+            <div className="flex-1">
+              <p className="font-medium text-slate-900">Zoom Meetings</p>
+              <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                {zoomStatusLoading ? (
+                  "Checking connection..."
+                ) : zoomStatus?.connected ? (
+                  <>
+                    <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Connected
+                  </>
+                ) : (
+                  <>
+                    <MailWarning className="h-3 w-3 text-amber-600" /> Not connected
+                  </>
+                )}
+              </p>
+            </div>
+            {zoomStatus?.connected ? (
+              <Button
+                variant="danger"
+                onClick={() => disconnectZoom.mutate()}
+                loading={disconnectZoom.isPending}
+              >
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                disabled={zoomStatusLoading}
+                onClick={() => connectZoom.mutate()}
+                loading={connectZoom.isPending}
+              >
+                Connect Zoom
               </Button>
             )}
           </div>

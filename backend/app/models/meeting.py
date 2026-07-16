@@ -72,6 +72,21 @@ class Meeting(Base):
         nullable=True,
     )
 
+    zoom_meeting_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    zoom_join_url: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
+    zoom_start_url: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
     status: Mapped[str] = mapped_column(
         String(50),
         default="scheduled",

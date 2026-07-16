@@ -67,6 +67,7 @@ class FakeMeeting:
         resource_id=None,
         google_event_id=None,
         outlook_event_id=None,
+        zoom_meeting_id=None,
         status="scheduled",
         title="Sync",
     ):
@@ -77,6 +78,9 @@ class FakeMeeting:
         self.resource_id = resource_id
         self.google_event_id = google_event_id
         self.outlook_event_id = outlook_event_id
+        self.zoom_meeting_id = zoom_meeting_id
+        self.zoom_join_url = None
+        self.zoom_start_url = None
         self.status = status
         self.title = title
         self.description = None

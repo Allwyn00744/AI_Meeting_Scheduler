@@ -25,6 +25,8 @@ export default defineConfig({
       "/scheduler": "http://localhost:8000",
       "/email": "http://localhost:8000",
       "/google": "http://localhost:8000",
+      "/outlook": "http://localhost:8000",
+      "/zoom": "http://localhost:8000",
       "/ai": "http://localhost:8000",
       "/action-items": "http://localhost:8000",
       "/meeting-intelligence": "http://localhost:8000",
