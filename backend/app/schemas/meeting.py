@@ -64,12 +64,14 @@ class MeetingResponse(BaseModel):
         default_factory=list
     )
 
-    # Zoom Meeting Integration V1 only - Google/Outlook provider fields
-    # (google_event_id, google_meet_link, outlook_event_id, etc.) are
-    # deliberately not exposed here; that is a separate, pre-existing
-    # gap and out of scope for this change.
+    # Zoom Meeting Integration V1 and Microsoft Teams Integration V1
+    # only - Google/Outlook provider fields (google_event_id,
+    # google_meet_link, outlook_event_id, etc.) are deliberately not
+    # exposed here; that is a separate, pre-existing gap and out of
+    # scope for this change.
     zoom_meeting_id: str | None = None
     zoom_join_url: str | None = None
     zoom_start_url: str | None = None
+    teams_join_url: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

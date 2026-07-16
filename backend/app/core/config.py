@@ -54,8 +54,16 @@ class Settings(BaseSettings):
     # restricted to a single Google Workspace domain either.
     MICROSOFT_TENANT_ID: str = "common"
 
+    # OnlineMeetings.ReadWrite was added for Microsoft Teams Integration
+    # V1 (teams_meeting_service.py sets isOnlineMeeting/onlineMeetingProvider
+    # on Outlook calendar events). Users who connected Outlook before this
+    # scope was added hold a token without it - TeamsMeetingService detects
+    # the resulting Graph 403 and asks them to reconnect rather than
+    # failing silently or forcing a redundant OAuth flow for everyone.
     MICROSOFT_SCOPES: str = (
-        "https://graph.microsoft.com/Calendars.ReadWrite offline_access"
+        "https://graph.microsoft.com/Calendars.ReadWrite "
+        "https://graph.microsoft.com/OnlineMeetings.ReadWrite "
+        "offline_access"
     )
 
     # JWT

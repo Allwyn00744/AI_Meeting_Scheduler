@@ -193,6 +193,21 @@ export default function MeetingDetail() {
               </div>
             </>
           )}
+          {meeting.teams_join_url && (
+            <>
+              <p className="mb-2 text-xs font-medium text-slate-500">Microsoft Teams Meeting</p>
+              <div className="mb-5 flex flex-wrap gap-2">
+                <a
+                  href={meeting.teams_join_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700"
+                >
+                  <Video className="h-3.5 w-3.5" /> Join on Teams
+                </a>
+              </div>
+            </>
+          )}
           {meeting.external_guests.length > 0 && (
             <>
               <p className="mb-2 text-xs font-medium text-slate-500">External guests</p>

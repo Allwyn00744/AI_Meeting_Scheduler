@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Calendar, CheckCircle2, MailWarning, Video } from "lucide-react";
+import { Calendar, CheckCircle2, MailWarning, Users, Video } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
@@ -12,9 +12,10 @@ import { usersApi } from "@/api/users";
 import { googleApi } from "@/api/google";
 import { outlookApi } from "@/api/outlook";
 import { zoomApi } from "@/api/zoom";
+import { teamsApi } from "@/api/teams";
 import { getApiErrorMessage } from "@/api/client";
 
-const TABS = ["Profile", "Google Calendar", "Outlook Calendar", "Zoom Meetings", "Security"] as const;
+const TABS = ["Profile", "Google Calendar", "Outlook Calendar", "Zoom Meetings", "Microsoft Teams", "Security"] as const;
 
 function initialsOf(name: string) {
   const parts = name.trim().split(/\s+/);
@@ -114,6 +115,9 @@ export default function Settings() {
     if (outlookResult === "connected") {
       push("success", "Outlook Calendar connected");
       refetchOutlook();
+      // Microsoft Teams availability mirrors Outlook's connection
+      // state, so it changes here too.
+      refetchTeams();
     } else if (outlookResult === "error") {
       push("error", "Couldn't connect Outlook Calendar", "Please try again.");
     }
@@ -160,6 +164,15 @@ export default function Settings() {
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  // Microsoft Teams Integration V1: "connected" mirrors Outlook's own
+  // connection state (see api/teams_routes.py) - there is no separate
+  // Teams connect/disconnect flow, so unlike the tabs above there's no
+  // mutation or OAuth-callback effect here, just a status query.
+  const { data: teamsStatus, isLoading: teamsStatusLoading, refetch: refetchTeams } = useQuery({
+    queryKey: ["teams-status"],
+    queryFn: teamsApi.status,
+  });
 
   if (!user) return null;
 
@@ -343,6 +356,41 @@ export default function Settings() {
                 loading={connectZoom.isPending}
               >
                 Connect Zoom
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {tab === "Microsoft Teams" && (
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
+              <Users className="h-4 w-4 text-slate-600" />
+            </div>
+            <div className="flex-1">
+              <p className="font-medium text-slate-900">Microsoft Teams</p>
+              <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
+                {teamsStatusLoading ? (
+                  "Checking connection..."
+                ) : teamsStatus?.connected ? (
+                  <>
+                    <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Connected
+                  </>
+                ) : (
+                  <>
+                    <MailWarning className="h-3 w-3 text-amber-600" /> Not connected
+                  </>
+                )}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                Teams meetings are added to your synced Outlook Calendar events - there&apos;s nothing separate to
+                connect here.
+              </p>
+            </div>
+            {!teamsStatus?.connected && (
+              <Button disabled={teamsStatusLoading} onClick={() => setTab("Outlook Calendar")}>
+                Connect Outlook
               </Button>
             )}
           </div>
