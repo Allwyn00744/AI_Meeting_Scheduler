@@ -7,6 +7,8 @@ from app.models.external_meeting_guest import ExternalMeetingGuest
 from app.models.availability import Availability
 from app.models.google_credential import GoogleCredential
 from app.models.oauth_state import GoogleOAuthState
+from app.models.outlook_credential import OutlookCredential
+from app.models.outlook_oauth_state import OutlookOAuthState
 from app.models.meeting_notes import MeetingNotes
 from app.models.meeting_note import MeetingNote
 from app.models.meeting_summary import MeetingSummary
