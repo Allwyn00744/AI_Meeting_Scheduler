@@ -38,6 +38,7 @@ from app.services.google_calendar_service import GoogleCalendarService
 from app.services.meeting_notification_service import (
     MeetingNotificationService,
 )
+from app.services.outlook_calendar_service import OutlookCalendarService
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +187,44 @@ class MeetingService:
                 db_meeting.id,
             )
 
+        # Outlook Calendar sync is a second, independent best-effort
+        # side effect, parallel to the Google block above - each
+        # provider is optional and connecting one must never affect
+        # the other. Gated on is_outlook_connected() first so the
+        # common "Outlook not connected" case skips straight past
+        # without paying for a credential fetch + exception.
+        if OutlookCalendarService.is_outlook_connected(
+            db,
+            current_user.id,
+        ):
+            try:
+                outlook_event = (
+                    OutlookCalendarService.create_outlook_calendar_event(
+                        db=db,
+                        user_id=current_user.id,
+                        title=db_meeting.title,
+                        description=db_meeting.description or "",
+                        start_time=db_meeting.start_time,
+                        end_time=db_meeting.end_time,
+                        location=db_meeting.location,
+                        attendee_emails=resolved_guests,
+                    )
+                )
+
+                db_meeting.outlook_event_id = outlook_event.get("id")
+                db_meeting.outlook_event_link = outlook_event.get(
+                    "webLink"
+                )
+
+                db.commit()
+                db.refresh(db_meeting)
+            except Exception:
+                logger.exception(
+                    "Outlook Calendar integration failed. "
+                    "meeting_id=%s",
+                    db_meeting.id,
+                )
+
         # Best-effort: the meeting is already committed above, so an
         # SMTP failure here must not turn a successful creation into
         # a failed request.
@@ -309,6 +348,20 @@ class MeetingService:
                     meeting.id,
                 )
 
+        # Outlook Calendar sync, parallel to the Google block above.
+        if meeting.outlook_event_id:
+            try:
+                OutlookCalendarService.update_outlook_calendar_event(
+                    db=db,
+                    meeting=meeting,
+                )
+            except Exception:
+                logger.exception(
+                    "Outlook Calendar integration failed during "
+                    "meeting update. meeting_id=%s",
+                    meeting.id,
+                )
+
         # Best-effort: the update is already committed above.
         MeetingNotificationService.notify_meeting_updated(db, meeting)
 
@@ -350,6 +403,22 @@ class MeetingService:
                 meeting=meeting,
             )
 
+        # Outlook Calendar sync, parallel to the Google block above.
+        # Wrapped in try/except (unlike the Google call above) so an
+        # Outlook outage can never block a meeting deletion.
+        if meeting.outlook_event_id:
+            try:
+                OutlookCalendarService.delete_outlook_calendar_event(
+                    db=db,
+                    meeting=meeting,
+                )
+            except Exception:
+                logger.exception(
+                    "Outlook Calendar integration failed during "
+                    "meeting delete. meeting_id=%s",
+                    meeting.id,
+                )
+
         # Resolve recipients and notify before the delete below -
         # participant/external-guest rows are removed via ON DELETE
         # CASCADE once the meeting row is gone, so they must be read
@@ -380,6 +449,159 @@ class MeetingService:
 
         return {
             "message": "Meeting deleted successfully"
+        }
+
+    @staticmethod
+    def create_outlook_sync(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        """
+        Used by POST /outlook/sync/{meeting_id}. Manually creates the
+        Outlook event for a meeting that was created before Outlook
+        was connected, or to retry a failed automatic sync - the
+        automatic path lives in create_meeting above.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        if meeting.outlook_event_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Meeting is already synced to Outlook Calendar. "
+                    "Use PUT to update it instead."
+                ),
+            )
+
+        event = OutlookCalendarService.create_outlook_calendar_event(
+            db=db,
+            user_id=current_user.id,
+            title=meeting.title,
+            description=meeting.description or "",
+            start_time=meeting.start_time,
+            end_time=meeting.end_time,
+            location=meeting.location,
+            attendee_emails=[
+                guest.email for guest in meeting.external_guests
+            ],
+        )
+
+        meeting.outlook_event_id = event.get("id")
+        meeting.outlook_event_link = event.get("webLink")
+
+        meeting = MeetingRepository.update(db, meeting)
+
+        return {
+            "message": "Meeting synced to Outlook Calendar successfully",
+            "outlook_event_id": meeting.outlook_event_id,
+            "outlook_event_link": meeting.outlook_event_link,
+        }
+
+    @staticmethod
+    def update_outlook_sync(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        """
+        Used by PUT /outlook/sync/{meeting_id}. Manually re-pushes the
+        current meeting data to its existing Outlook event - a retry
+        tool for when the automatic sync in update_meeting above
+        failed.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        if not meeting.outlook_event_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Meeting is not synced to Outlook Calendar yet. "
+                    "Use POST to sync it first."
+                ),
+            )
+
+        event = OutlookCalendarService.update_outlook_calendar_event(
+            db=db,
+            meeting=meeting,
+        )
+
+        if event.get("webLink"):
+            meeting.outlook_event_link = event.get("webLink")
+            meeting = MeetingRepository.update(db, meeting)
+
+        return {
+            "message": "Outlook Calendar event updated successfully",
+            "outlook_event_id": meeting.outlook_event_id,
+            "outlook_event_link": meeting.outlook_event_link,
+        }
+
+    @staticmethod
+    def delete_outlook_sync(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        """
+        Used by DELETE /outlook/sync/{meeting_id}. Unlinks this one
+        meeting from Outlook Calendar (deletes the Outlook event and
+        clears outlook_event_id/link) without deleting the Meeting
+        itself.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        if not meeting.outlook_event_id:
+            return {
+                "message": "Meeting was not synced to Outlook Calendar",
+            }
+
+        OutlookCalendarService.delete_outlook_calendar_event(
+            db=db,
+            meeting=meeting,
+        )
+
+        meeting.outlook_event_id = None
+        meeting.outlook_event_link = None
+        MeetingRepository.update(db, meeting)
+
+        return {
+            "message": "Outlook Calendar event unlinked successfully",
         }
 
     @staticmethod

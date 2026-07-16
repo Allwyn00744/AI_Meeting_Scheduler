@@ -62,6 +62,16 @@ class Meeting(Base):
         nullable=True,
     )
 
+    outlook_event_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    outlook_event_link: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
     status: Mapped[str] = mapped_column(
         String(50),
         default="scheduled",

@@ -7,6 +7,7 @@ from app.db.database import Base
 
 if TYPE_CHECKING:
     from app.models.google_credential import GoogleCredential
+    from app.models.outlook_credential import OutlookCredential
 
 
 class User(Base):
@@ -54,6 +55,12 @@ class User(Base):
     )
     google_credential: Mapped["GoogleCredential | None"] = relationship(
         "GoogleCredential",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    outlook_credential: Mapped["OutlookCredential | None"] = relationship(
+        "OutlookCredential",
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan",

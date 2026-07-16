@@ -66,6 +66,7 @@ class FakeMeeting:
         end_time=MEETING_END,
         resource_id=None,
         google_event_id=None,
+        outlook_event_id=None,
         status="scheduled",
         title="Sync",
     ):
@@ -75,6 +76,7 @@ class FakeMeeting:
         self.end_time = end_time
         self.resource_id = resource_id
         self.google_event_id = google_event_id
+        self.outlook_event_id = outlook_event_id
         self.status = status
         self.title = title
         self.description = None

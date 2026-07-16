@@ -39,6 +39,25 @@ class Settings(BaseSettings):
     # this API. Never include a trailing slash.
     FRONTEND_URL: str = "http://localhost:5173"
 
+    # Microsoft OAuth (Outlook Calendar)
+    # Optional, like GEMINI_API_KEY below: /outlook endpoints return 503
+    # when absent or blank, so environments that don't need Outlook
+    # integration are not required to touch .env for this app to start.
+    # Register an app at https://portal.azure.com (Azure AD App
+    # registrations) to obtain these.
+    MICROSOFT_CLIENT_ID: Optional[str] = None
+    MICROSOFT_CLIENT_SECRET: Optional[str] = None
+    MICROSOFT_REDIRECT_URI: str = "http://localhost:8000/outlook/callback"
+
+    # "common" allows both work/school and personal Microsoft accounts
+    # to sign in, matching this app's Google integration which is not
+    # restricted to a single Google Workspace domain either.
+    MICROSOFT_TENANT_ID: str = "common"
+
+    MICROSOFT_SCOPES: str = (
+        "https://graph.microsoft.com/Calendars.ReadWrite offline_access"
+    )
+
     # JWT
     # No default on purpose: the application must fail fast at
     # startup if this is not supplied via environment/.env, rather
@@ -97,6 +116,24 @@ class Settings(BaseSettings):
     def gemini_api_key_configured(self) -> bool:
         """True only when GEMINI_API_KEY is set and non-blank."""
         return bool(self.GEMINI_API_KEY and self.GEMINI_API_KEY.strip())
+
+    @property
+    def microsoft_scopes_list(self) -> list[str]:
+        return [
+            scope.strip()
+            for scope in self.MICROSOFT_SCOPES.split(" ")
+            if scope.strip()
+        ]
+
+    @property
+    def microsoft_oauth_configured(self) -> bool:
+        """True only when both Microsoft OAuth credentials are set."""
+        return bool(
+            self.MICROSOFT_CLIENT_ID
+            and self.MICROSOFT_CLIENT_ID.strip()
+            and self.MICROSOFT_CLIENT_SECRET
+            and self.MICROSOFT_CLIENT_SECRET.strip()
+        )
 
 
 settings = Settings()

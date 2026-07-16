@@ -48,6 +48,7 @@ from app.services.google_calendar_service import GoogleCalendarService
 from app.services.meeting_notification_service import (
     MeetingNotificationService,
 )
+from app.services.outlook_calendar_service import OutlookCalendarService
 from app.services.meeting_service import MeetingService
 
 
@@ -132,6 +133,20 @@ class SchedulerService:
                 except HTTPException:
                     logger.warning(
                         "Cleanup: failed to delete Google Calendar "
+                        "event for meeting_id=%s during rollback of "
+                        "a failed recurring series.",
+                        meeting_id,
+                    )
+
+            if meeting.outlook_event_id:
+                try:
+                    OutlookCalendarService.delete_outlook_calendar_event(
+                        db=db,
+                        meeting=meeting,
+                    )
+                except HTTPException:
+                    logger.warning(
+                        "Cleanup: failed to delete Outlook Calendar "
                         "event for meeting_id=%s during rollback of "
                         "a failed recurring series.",
                         meeting_id,
@@ -472,6 +487,50 @@ class SchedulerService:
                         "meeting_id=%s",
                         db_meeting.id,
                     )
+
+                # Outlook Calendar sync, parallel to the Google block
+                # above - each provider is optional and independent.
+                if OutlookCalendarService.is_outlook_connected(
+                    db,
+                    current_user.id,
+                ):
+                    try:
+                        outlook_event = (
+                            OutlookCalendarService
+                            .create_outlook_calendar_event(
+                                db=db,
+                                user_id=current_user.id,
+                                title=db_meeting.title,
+                                description=db_meeting.description or "",
+                                start_time=db_meeting.start_time,
+                                end_time=db_meeting.end_time,
+                                location=db_meeting.location,
+                                attendee_emails=resolved_external_guests,
+                            )
+                        )
+
+                        db_meeting.outlook_event_id = outlook_event.get(
+                            "id"
+                        )
+                        db_meeting.outlook_event_link = outlook_event.get(
+                            "webLink"
+                        )
+
+                        db.commit()
+                        db.refresh(db_meeting)
+
+                        logger.info(
+                            "Outlook Calendar event created "
+                            "successfully. meeting_id=%s",
+                            db_meeting.id,
+                        )
+
+                    except Exception:
+                        logger.exception(
+                            "Outlook Calendar integration failed. "
+                            "meeting_id=%s",
+                            db_meeting.id,
+                        )
 
         except IntegrityError:
             db.rollback()
@@ -816,6 +875,22 @@ class SchedulerService:
                 db,
                 db_meeting,
             )
+
+        # Outlook Calendar sync, parallel to the Google block above.
+        # Wrapped in try/except (unlike the Google call above) so an
+        # Outlook outage can never block this update.
+        if db_meeting.outlook_event_id:
+            try:
+                OutlookCalendarService.update_outlook_calendar_event(
+                    db,
+                    db_meeting,
+                )
+            except Exception:
+                logger.exception(
+                    "Outlook Calendar integration failed during "
+                    "meeting update. meeting_id=%s",
+                    db_meeting.id,
+                )
 
         # Best-effort: the update is already committed above.
         MeetingNotificationService.notify_meeting_updated(db, db_meeting)
