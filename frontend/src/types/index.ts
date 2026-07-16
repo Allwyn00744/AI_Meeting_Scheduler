@@ -46,6 +46,10 @@ export interface Meeting {
   // viewer who isn't the meeting owner - see
   // MeetingService.get_meeting_by_id.
   zoom_start_url: string | null;
+  // Microsoft Teams Integration V1. No teams_meeting_id - a Teams
+  // meeting is the existing Outlook event with isOnlineMeeting set,
+  // not a separate resource, so there's no second ID to expose.
+  teams_join_url: string | null;
 }
 
 export interface MeetingCreatePayload {
@@ -316,6 +320,14 @@ export interface OutlookStatus {
 // ---- zoom (app/api/zoom_routes.py) -----------------------------------------
 
 export interface ZoomStatus {
+  connected: boolean;
+}
+
+// ---- microsoft teams (app/api/teams_routes.py) -----------------------------
+// "connected" mirrors Outlook's own connection state - there's no
+// separate Teams connect/disconnect flow, see teams_routes.py.
+
+export interface TeamsStatus {
   connected: boolean;
 }
 

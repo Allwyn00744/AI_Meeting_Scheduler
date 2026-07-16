@@ -49,6 +49,7 @@ from app.services.meeting_notification_service import (
     MeetingNotificationService,
 )
 from app.services.outlook_calendar_service import OutlookCalendarService
+from app.services.teams_meeting_service import TeamsMeetingService
 from app.services.zoom_calendar_service import ZoomCalendarService
 from app.services.meeting_service import MeetingService
 
@@ -152,6 +153,11 @@ class SchedulerService:
                         "a failed recurring series.",
                         meeting_id,
                     )
+                # No separate Microsoft Teams cleanup: a Teams meeting
+                # isn't its own resource, it's this same Outlook event
+                # with isOnlineMeeting/onlineMeetingProvider set, so
+                # deleting the event above removes it on Microsoft's
+                # side too.
 
             if meeting.zoom_meeting_id:
                 try:
@@ -547,8 +553,43 @@ class SchedulerService:
                             db_meeting.id,
                         )
 
-                # Zoom Meeting sync, parallel to the Google/Outlook
-                # blocks above - each provider is optional and
+                # Microsoft Teams sync, parallel to the Google/Outlook
+                # blocks above - but it never creates its own
+                # resource, it only extends the Outlook event just
+                # created, so it only runs when that block succeeded
+                # for this occurrence.
+                if db_meeting.outlook_event_id:
+                    try:
+                        teams_event = (
+                            TeamsMeetingService.enable_teams_meeting(
+                                db=db,
+                                user_id=current_user.id,
+                                event_id=db_meeting.outlook_event_id,
+                            )
+                        )
+
+                        db_meeting.teams_join_url = (
+                            teams_event.get("onlineMeeting") or {}
+                        ).get("joinUrl")
+
+                        db.commit()
+                        db.refresh(db_meeting)
+
+                        logger.info(
+                            "Microsoft Teams meeting enabled "
+                            "successfully. meeting_id=%s",
+                            db_meeting.id,
+                        )
+
+                    except Exception:
+                        logger.exception(
+                            "Microsoft Teams integration failed. "
+                            "meeting_id=%s",
+                            db_meeting.id,
+                        )
+
+                # Zoom Meeting sync, parallel to the Google/Outlook/
+                # Teams blocks above - each provider is optional and
                 # independent.
                 if ZoomCalendarService.is_zoom_connected(
                     db,
@@ -952,8 +993,32 @@ class SchedulerService:
                     db_meeting.id,
                 )
 
-        # Zoom Meeting sync, parallel to the Google/Outlook blocks
-        # above.
+        # Microsoft Teams sync, parallel to the Outlook block above -
+        # only re-asserted when this meeting already has Teams
+        # enabled, and only possible while its Outlook event exists.
+        if db_meeting.teams_join_url and db_meeting.outlook_event_id:
+            try:
+                teams_event = TeamsMeetingService.enable_teams_meeting(
+                    db=db,
+                    user_id=db_meeting.owner_id,
+                    event_id=db_meeting.outlook_event_id,
+                )
+
+                joined_url = (
+                    teams_event.get("onlineMeeting") or {}
+                ).get("joinUrl")
+                if joined_url:
+                    db_meeting.teams_join_url = joined_url
+                    db_meeting = MeetingRepository.update(db, db_meeting)
+            except Exception:
+                logger.exception(
+                    "Microsoft Teams integration failed during "
+                    "meeting update. meeting_id=%s",
+                    db_meeting.id,
+                )
+
+        # Zoom Meeting sync, parallel to the Google/Outlook/Teams
+        # blocks above.
         if db_meeting.zoom_meeting_id:
             try:
                 ZoomCalendarService.update_zoom_meeting(

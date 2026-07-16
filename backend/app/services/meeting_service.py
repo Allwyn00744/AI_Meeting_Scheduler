@@ -39,6 +39,7 @@ from app.services.meeting_notification_service import (
     MeetingNotificationService,
 )
 from app.services.outlook_calendar_service import OutlookCalendarService
+from app.services.teams_meeting_service import TeamsMeetingService
 from app.services.zoom_calendar_service import ZoomCalendarService
 
 logger = logging.getLogger(__name__)
@@ -226,10 +227,35 @@ class MeetingService:
                     db_meeting.id,
                 )
 
-        # Zoom Meeting sync is a third, independent best-effort side
-        # effect, parallel to the Google and Outlook blocks above -
-        # each provider is optional and connecting one must never
-        # affect the others.
+        # Microsoft Teams sync is a third, independent best-effort side
+        # effect - but unlike Google/Outlook/Zoom it never creates its
+        # own resource. It only extends the Outlook event just created
+        # above (isOnlineMeeting/onlineMeetingProvider), so it only
+        # runs when that Outlook block succeeded in this same request.
+        if db_meeting.outlook_event_id:
+            try:
+                teams_event = TeamsMeetingService.enable_teams_meeting(
+                    db=db,
+                    user_id=current_user.id,
+                    event_id=db_meeting.outlook_event_id,
+                )
+
+                db_meeting.teams_join_url = (
+                    teams_event.get("onlineMeeting") or {}
+                ).get("joinUrl")
+
+                db.commit()
+                db.refresh(db_meeting)
+            except Exception:
+                logger.exception(
+                    "Microsoft Teams integration failed. meeting_id=%s",
+                    db_meeting.id,
+                )
+
+        # Zoom Meeting sync is a fourth, independent best-effort side
+        # effect, parallel to the Google, Outlook, and Teams blocks
+        # above - each provider is optional and connecting one must
+        # never affect the others.
         if ZoomCalendarService.is_zoom_connected(
             db,
             current_user.id,
@@ -400,8 +426,33 @@ class MeetingService:
                     meeting.id,
                 )
 
-        # Zoom Meeting sync, parallel to the Google/Outlook blocks
-        # above.
+        # Microsoft Teams sync, parallel to the Outlook block above -
+        # only re-asserted when this meeting already has Teams enabled
+        # (there is nothing to update otherwise), and only possible
+        # while the Outlook event it extends still exists.
+        if meeting.teams_join_url and meeting.outlook_event_id:
+            try:
+                teams_event = TeamsMeetingService.enable_teams_meeting(
+                    db=db,
+                    user_id=current_user.id,
+                    event_id=meeting.outlook_event_id,
+                )
+
+                joined_url = (
+                    teams_event.get("onlineMeeting") or {}
+                ).get("joinUrl")
+                if joined_url:
+                    meeting.teams_join_url = joined_url
+                    meeting = MeetingRepository.update(db, meeting)
+            except Exception:
+                logger.exception(
+                    "Microsoft Teams integration failed during "
+                    "meeting update. meeting_id=%s",
+                    meeting.id,
+                )
+
+        # Zoom Meeting sync, parallel to the Google/Outlook/Teams
+        # blocks above.
         if meeting.zoom_meeting_id:
             try:
                 ZoomCalendarService.update_zoom_meeting(
@@ -458,7 +509,12 @@ class MeetingService:
 
         # Outlook Calendar sync, parallel to the Google block above.
         # Wrapped in try/except (unlike the Google call above) so an
-        # Outlook outage can never block a meeting deletion.
+        # Outlook outage can never block a meeting deletion. No
+        # separate Microsoft Teams deletion call is needed here: a
+        # Teams meeting isn't its own resource, it's this same Outlook
+        # event with isOnlineMeeting/onlineMeetingProvider set, so
+        # deleting the event below removes the Teams meeting on
+        # Microsoft's side too.
         if meeting.outlook_event_id:
             try:
                 OutlookCalendarService.delete_outlook_calendar_event(
@@ -671,6 +727,172 @@ class MeetingService:
 
         return {
             "message": "Outlook Calendar event unlinked successfully",
+        }
+
+    @staticmethod
+    def create_teams_sync(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        """
+        Used by POST /teams/sync/{meeting_id}. Turns this meeting's
+        existing Outlook event into a Teams meeting - it does not
+        create an Outlook event itself, since Teams Integration V1
+        extends the Outlook event rather than being a standalone
+        resource. Sync to Outlook first (POST /outlook/sync) if the
+        meeting has no outlook_event_id yet.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        if meeting.teams_join_url:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Meeting is already synced to Microsoft Teams. "
+                    "Use PUT to update it instead."
+                ),
+            )
+
+        if not meeting.outlook_event_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Meeting must be synced to Outlook Calendar first. "
+                    "Use POST /outlook/sync, then try again."
+                ),
+            )
+
+        event = TeamsMeetingService.enable_teams_meeting(
+            db=db,
+            user_id=current_user.id,
+            event_id=meeting.outlook_event_id,
+        )
+
+        meeting.teams_join_url = (
+            event.get("onlineMeeting") or {}
+        ).get("joinUrl")
+
+        meeting = MeetingRepository.update(db, meeting)
+
+        return {
+            "message": "Meeting synced to Microsoft Teams successfully",
+            "teams_join_url": meeting.teams_join_url,
+        }
+
+    @staticmethod
+    def update_teams_sync(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        """
+        Used by PUT /teams/sync/{meeting_id}. Re-asserts Teams on the
+        meeting's existing Outlook event - a retry tool for when the
+        automatic sync in update_meeting above failed, or to refresh
+        the stored join URL.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        if not meeting.teams_join_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Meeting is not synced to Microsoft Teams yet. "
+                    "Use POST to sync it first."
+                ),
+            )
+
+        if not meeting.outlook_event_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Meeting's Outlook event no longer exists. Sync "
+                    "to Outlook again, then re-sync to Teams."
+                ),
+            )
+
+        event = TeamsMeetingService.enable_teams_meeting(
+            db=db,
+            user_id=current_user.id,
+            event_id=meeting.outlook_event_id,
+        )
+
+        joined_url = (event.get("onlineMeeting") or {}).get("joinUrl")
+        if joined_url:
+            meeting.teams_join_url = joined_url
+            meeting = MeetingRepository.update(db, meeting)
+
+        return {
+            "message": "Microsoft Teams meeting updated successfully",
+            "teams_join_url": meeting.teams_join_url,
+        }
+
+    @staticmethod
+    def delete_teams_sync(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        """
+        Used by DELETE /teams/sync/{meeting_id}. Unlinks this one
+        meeting from Microsoft Teams (turns Teams off on its Outlook
+        event and clears teams_join_url) without deleting the Outlook
+        event or the Meeting itself.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        if not meeting.teams_join_url:
+            return {
+                "message": "Meeting was not synced to Microsoft Teams",
+            }
+
+        TeamsMeetingService.disable_teams_meeting(
+            db=db,
+            meeting=meeting,
+        )
+
+        meeting.teams_join_url = None
+        MeetingRepository.update(db, meeting)
+
+        return {
+            "message": "Microsoft Teams meeting unlinked successfully",
         }
 
     @staticmethod

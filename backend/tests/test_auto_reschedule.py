@@ -81,6 +81,7 @@ class FakeMeeting:
         self.zoom_meeting_id = zoom_meeting_id
         self.zoom_join_url = None
         self.zoom_start_url = None
+        self.teams_join_url = None
         self.status = status
         self.title = title
         self.description = None

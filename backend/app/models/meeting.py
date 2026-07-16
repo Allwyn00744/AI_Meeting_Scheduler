@@ -87,6 +87,16 @@ class Meeting(Base):
         nullable=True,
     )
 
+    # Microsoft Teams Integration V1. No teams_meeting_id column exists -
+    # a Teams meeting here is not a separate resource, it's the existing
+    # Outlook event (outlook_event_id above) with isOnlineMeeting=true /
+    # onlineMeetingProvider="teamsForBusiness" set on it, so the event
+    # identity is already tracked by outlook_event_id.
+    teams_join_url: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
     status: Mapped[str] = mapped_column(
         String(50),
         default="scheduled",
