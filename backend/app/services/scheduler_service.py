@@ -49,6 +49,7 @@ from app.services.meeting_notification_service import (
     MeetingNotificationService,
 )
 from app.services.outlook_calendar_service import OutlookCalendarService
+from app.services.zoom_calendar_service import ZoomCalendarService
 from app.services.meeting_service import MeetingService
 
 
@@ -149,6 +150,20 @@ class SchedulerService:
                         "Cleanup: failed to delete Outlook Calendar "
                         "event for meeting_id=%s during rollback of "
                         "a failed recurring series.",
+                        meeting_id,
+                    )
+
+            if meeting.zoom_meeting_id:
+                try:
+                    ZoomCalendarService.delete_zoom_meeting(
+                        db=db,
+                        meeting=meeting,
+                    )
+                except HTTPException:
+                    logger.warning(
+                        "Cleanup: failed to delete Zoom meeting for "
+                        "meeting_id=%s during rollback of a failed "
+                        "recurring series.",
                         meeting_id,
                     )
 
@@ -532,6 +547,51 @@ class SchedulerService:
                             db_meeting.id,
                         )
 
+                # Zoom Meeting sync, parallel to the Google/Outlook
+                # blocks above - each provider is optional and
+                # independent.
+                if ZoomCalendarService.is_zoom_connected(
+                    db,
+                    current_user.id,
+                ):
+                    try:
+                        zoom_meeting = (
+                            ZoomCalendarService.create_zoom_meeting(
+                                db=db,
+                                user_id=current_user.id,
+                                title=db_meeting.title,
+                                description=db_meeting.description or "",
+                                start_time=db_meeting.start_time,
+                                end_time=db_meeting.end_time,
+                            )
+                        )
+
+                        db_meeting.zoom_meeting_id = str(
+                            zoom_meeting.get("id")
+                        )
+                        db_meeting.zoom_join_url = zoom_meeting.get(
+                            "join_url"
+                        )
+                        db_meeting.zoom_start_url = zoom_meeting.get(
+                            "start_url"
+                        )
+
+                        db.commit()
+                        db.refresh(db_meeting)
+
+                        logger.info(
+                            "Zoom meeting created successfully. "
+                            "meeting_id=%s",
+                            db_meeting.id,
+                        )
+
+                    except Exception:
+                        logger.exception(
+                            "Zoom Meeting integration failed. "
+                            "meeting_id=%s",
+                            db_meeting.id,
+                        )
+
         except IntegrityError:
             db.rollback()
             logger.error(
@@ -889,6 +949,21 @@ class SchedulerService:
                 logger.exception(
                     "Outlook Calendar integration failed during "
                     "meeting update. meeting_id=%s",
+                    db_meeting.id,
+                )
+
+        # Zoom Meeting sync, parallel to the Google/Outlook blocks
+        # above.
+        if db_meeting.zoom_meeting_id:
+            try:
+                ZoomCalendarService.update_zoom_meeting(
+                    db,
+                    db_meeting,
+                )
+            except Exception:
+                logger.exception(
+                    "Zoom Meeting integration failed during meeting "
+                    "update. meeting_id=%s",
                     db_meeting.id,
                 )
 

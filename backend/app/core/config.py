@@ -135,5 +135,34 @@ class Settings(BaseSettings):
             and self.MICROSOFT_CLIENT_SECRET.strip()
         )
 
+    # Zoom OAuth (Zoom Meetings)
+    # Optional, like MICROSOFT_CLIENT_ID above: /zoom endpoints return
+    # 503 when absent or blank. Register an OAuth app (type: "User-
+    # managed app" / Authorization Code Grant) at
+    # https://marketplace.zoom.us/develop/create to obtain these.
+    ZOOM_CLIENT_ID: Optional[str] = None
+    ZOOM_CLIENT_SECRET: Optional[str] = None
+    ZOOM_REDIRECT_URI: str = "http://localhost:8000/zoom/callback"
+
+    ZOOM_SCOPES: str = "meeting:write"
+
+    @property
+    def zoom_scopes_list(self) -> list[str]:
+        return [
+            scope.strip()
+            for scope in self.ZOOM_SCOPES.split(" ")
+            if scope.strip()
+        ]
+
+    @property
+    def zoom_oauth_configured(self) -> bool:
+        """True only when both Zoom OAuth credentials are set."""
+        return bool(
+            self.ZOOM_CLIENT_ID
+            and self.ZOOM_CLIENT_ID.strip()
+            and self.ZOOM_CLIENT_SECRET
+            and self.ZOOM_CLIENT_SECRET.strip()
+        )
+
 
 settings = Settings()

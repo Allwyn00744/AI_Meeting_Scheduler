@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Pencil, Trash2, Clock, DoorOpen, Sparkles, Mail,
   TriangleAlert, ArrowRight, X, UserPlus, Loader2, ListChecks, Copy,
-  Lightbulb, Upload, Check,
+  Lightbulb, Upload, Check, Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
@@ -168,6 +168,31 @@ export default function MeetingDetail() {
         <div>
           <p className="mb-1 text-xs font-medium text-slate-500">Description</p>
           <p className="mb-5 text-sm text-slate-800">{meeting.description || "No description provided."}</p>
+          {meeting.zoom_join_url && (
+            <>
+              <p className="mb-2 text-xs font-medium text-slate-500">Zoom Meeting</p>
+              <div className="mb-5 flex flex-wrap gap-2">
+                <a
+                  href={meeting.zoom_join_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700"
+                >
+                  <Video className="h-3.5 w-3.5" /> Join on Zoom
+                </a>
+                {isOwner && meeting.zoom_start_url && (
+                  <a
+                    href={meeting.zoom_start_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Video className="h-3.5 w-3.5" /> Start as host
+                  </a>
+                )}
+              </div>
+            </>
+          )}
           {meeting.external_guests.length > 0 && (
             <>
               <p className="mb-2 text-xs font-medium text-slate-500">External guests</p>

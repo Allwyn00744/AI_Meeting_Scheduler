@@ -39,6 +39,7 @@ from app.services.meeting_notification_service import (
     MeetingNotificationService,
 )
 from app.services.outlook_calendar_service import OutlookCalendarService
+from app.services.zoom_calendar_service import ZoomCalendarService
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +226,36 @@ class MeetingService:
                     db_meeting.id,
                 )
 
+        # Zoom Meeting sync is a third, independent best-effort side
+        # effect, parallel to the Google and Outlook blocks above -
+        # each provider is optional and connecting one must never
+        # affect the others.
+        if ZoomCalendarService.is_zoom_connected(
+            db,
+            current_user.id,
+        ):
+            try:
+                zoom_meeting = ZoomCalendarService.create_zoom_meeting(
+                    db=db,
+                    user_id=current_user.id,
+                    title=db_meeting.title,
+                    description=db_meeting.description or "",
+                    start_time=db_meeting.start_time,
+                    end_time=db_meeting.end_time,
+                )
+
+                db_meeting.zoom_meeting_id = str(zoom_meeting.get("id"))
+                db_meeting.zoom_join_url = zoom_meeting.get("join_url")
+                db_meeting.zoom_start_url = zoom_meeting.get("start_url")
+
+                db.commit()
+                db.refresh(db_meeting)
+            except Exception:
+                logger.exception(
+                    "Zoom Meeting integration failed. meeting_id=%s",
+                    db_meeting.id,
+                )
+
         # Best-effort: the meeting is already committed above, so an
         # SMTP failure here must not turn a successful creation into
         # a failed request.
@@ -267,6 +298,13 @@ class MeetingService:
                     "to view this meeting."
                 ),
             )
+
+        # zoom_start_url is the Zoom host key for this meeting (start
+        # controls, e.g. muting participants) - only the meeting owner
+        # may see it. Cleared on the in-memory object only (no commit
+        # follows), so this never persists to the database.
+        if not is_owner:
+            meeting.zoom_start_url = None
 
         return meeting
 
@@ -362,6 +400,21 @@ class MeetingService:
                     meeting.id,
                 )
 
+        # Zoom Meeting sync, parallel to the Google/Outlook blocks
+        # above.
+        if meeting.zoom_meeting_id:
+            try:
+                ZoomCalendarService.update_zoom_meeting(
+                    db=db,
+                    meeting=meeting,
+                )
+            except Exception:
+                logger.exception(
+                    "Zoom Meeting integration failed during meeting "
+                    "update. meeting_id=%s",
+                    meeting.id,
+                )
+
         # Best-effort: the update is already committed above.
         MeetingNotificationService.notify_meeting_updated(db, meeting)
 
@@ -416,6 +469,22 @@ class MeetingService:
                 logger.exception(
                     "Outlook Calendar integration failed during "
                     "meeting delete. meeting_id=%s",
+                    meeting.id,
+                )
+
+        # Zoom Meeting sync, parallel to the Google/Outlook blocks
+        # above. Wrapped so a Zoom outage can never block a meeting
+        # deletion.
+        if meeting.zoom_meeting_id:
+            try:
+                ZoomCalendarService.delete_zoom_meeting(
+                    db=db,
+                    meeting=meeting,
+                )
+            except Exception:
+                logger.exception(
+                    "Zoom Meeting integration failed during meeting "
+                    "delete. meeting_id=%s",
                     meeting.id,
                 )
 
@@ -602,6 +671,155 @@ class MeetingService:
 
         return {
             "message": "Outlook Calendar event unlinked successfully",
+        }
+
+    @staticmethod
+    def create_zoom_sync(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        """
+        Used by POST /zoom/sync/{meeting_id}. Manually creates the
+        Zoom meeting for a meeting that was created before Zoom was
+        connected, or to retry a failed automatic sync - the automatic
+        path lives in create_meeting above.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        if meeting.zoom_meeting_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Meeting is already synced to Zoom. Use PUT to "
+                    "update it instead."
+                ),
+            )
+
+        zoom_meeting = ZoomCalendarService.create_zoom_meeting(
+            db=db,
+            user_id=current_user.id,
+            title=meeting.title,
+            description=meeting.description or "",
+            start_time=meeting.start_time,
+            end_time=meeting.end_time,
+        )
+
+        meeting.zoom_meeting_id = str(zoom_meeting.get("id"))
+        meeting.zoom_join_url = zoom_meeting.get("join_url")
+        meeting.zoom_start_url = zoom_meeting.get("start_url")
+
+        meeting = MeetingRepository.update(db, meeting)
+
+        return {
+            "message": "Meeting synced to Zoom successfully",
+            "zoom_meeting_id": meeting.zoom_meeting_id,
+            "zoom_join_url": meeting.zoom_join_url,
+            "zoom_start_url": meeting.zoom_start_url,
+        }
+
+    @staticmethod
+    def update_zoom_sync(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        """
+        Used by PUT /zoom/sync/{meeting_id}. Manually re-pushes the
+        current meeting data to its existing Zoom meeting - a retry
+        tool for when the automatic sync in update_meeting above
+        failed.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        if not meeting.zoom_meeting_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Meeting is not synced to Zoom yet. Use POST to "
+                    "sync it first."
+                ),
+            )
+
+        ZoomCalendarService.update_zoom_meeting(
+            db=db,
+            meeting=meeting,
+        )
+
+        return {
+            "message": "Zoom meeting updated successfully",
+            "zoom_meeting_id": meeting.zoom_meeting_id,
+            "zoom_join_url": meeting.zoom_join_url,
+            "zoom_start_url": meeting.zoom_start_url,
+        }
+
+    @staticmethod
+    def delete_zoom_sync(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        """
+        Used by DELETE /zoom/sync/{meeting_id}. Unlinks this one
+        meeting from Zoom (deletes the Zoom meeting and clears
+        zoom_meeting_id/join_url/start_url) without deleting the
+        Meeting itself.
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        if not meeting.zoom_meeting_id:
+            return {
+                "message": "Meeting was not synced to Zoom",
+            }
+
+        ZoomCalendarService.delete_zoom_meeting(
+            db=db,
+            meeting=meeting,
+        )
+
+        meeting.zoom_meeting_id = None
+        meeting.zoom_join_url = None
+        meeting.zoom_start_url = None
+        MeetingRepository.update(db, meeting)
+
+        return {
+            "message": "Zoom meeting unlinked successfully",
         }
 
     @staticmethod

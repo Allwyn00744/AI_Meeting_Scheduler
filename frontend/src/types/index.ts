@@ -38,6 +38,14 @@ export interface Meeting {
   owner_id: number;
   resource_id: number | null;
   external_guests: ExternalGuest[];
+  // Zoom Meeting Integration V1 only - Google/Outlook provider fields
+  // are not exposed by MeetingResponse; see app/schemas/meeting.py.
+  zoom_meeting_id: string | null;
+  zoom_join_url: string | null;
+  // Host-only start link. The backend clears this to null for any
+  // viewer who isn't the meeting owner - see
+  // MeetingService.get_meeting_by_id.
+  zoom_start_url: string | null;
 }
 
 export interface MeetingCreatePayload {
@@ -296,6 +304,18 @@ export interface MeetingInsight {
 // ---- google (app/api/google_routes.py) -------------------------------------
 
 export interface GoogleStatus {
+  connected: boolean;
+}
+
+// ---- outlook (app/api/outlook_routes.py) -----------------------------------
+
+export interface OutlookStatus {
+  connected: boolean;
+}
+
+// ---- zoom (app/api/zoom_routes.py) -----------------------------------------
+
+export interface ZoomStatus {
   connected: boolean;
 }
 
