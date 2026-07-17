@@ -20,3 +20,5 @@ from app.models.meeting_owner_action_item import MeetingOwnerActionItem
 from app.models.meeting_owner_followup_email import MeetingOwnerFollowUpEmail
 from app.models.meeting_owner_insight import MeetingOwnerInsight
 from app.models.analytics_event import AnalyticsEvent
+from app.models.slack_credential import SlackCredential
+from app.models.slack_oauth_state import SlackOAuthState
