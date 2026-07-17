@@ -49,6 +49,7 @@ from app.services.meeting_notification_service import (
     MeetingNotificationService,
 )
 from app.services.outlook_calendar_service import OutlookCalendarService
+from app.services.slack_notification_service import SlackNotificationService
 from app.services.teams_meeting_service import TeamsMeetingService
 from app.services.zoom_calendar_service import ZoomCalendarService
 from app.services.meeting_service import MeetingService
@@ -690,6 +691,21 @@ class SchedulerService:
                 location=meeting.location,
             )
 
+        # Slack Notifications V1 - independent sibling to the email
+        # invitations above, not a modification of them. Sends one
+        # owner DM per created occurrence, using each occurrence's own
+        # start/end time. Best-effort, never raises.
+        for created_meeting_id in created_meetings:
+            created_meeting = MeetingRepository.get_by_id(
+                db,
+                created_meeting_id,
+            )
+            if created_meeting is not None:
+                SlackNotificationService.notify_meeting_created(
+                    db,
+                    created_meeting,
+                )
+
         if created_meetings:
             cache_delete_prefix(meetings_list_prefix(current_user.id))
             cache_delete(kpis_key(current_user.id))
@@ -1034,6 +1050,10 @@ class SchedulerService:
 
         # Best-effort: the update is already committed above.
         MeetingNotificationService.notify_meeting_updated(db, db_meeting)
+
+        # Slack Notifications V1 - independent sibling to the email
+        # notification above. Best-effort, never raises.
+        SlackNotificationService.notify_meeting_updated(db, db_meeting)
 
         cache_delete_prefix(meetings_list_prefix(db_meeting.owner_id))
 
