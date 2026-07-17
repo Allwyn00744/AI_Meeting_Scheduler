@@ -39,6 +39,7 @@ from app.services.meeting_notification_service import (
     MeetingNotificationService,
 )
 from app.services.outlook_calendar_service import OutlookCalendarService
+from app.services.slack_notification_service import SlackNotificationService
 from app.services.teams_meeting_service import TeamsMeetingService
 from app.services.zoom_calendar_service import ZoomCalendarService
 
@@ -287,6 +288,13 @@ class MeetingService:
         # a failed request.
         MeetingNotificationService.notify_meeting_created(db, db_meeting)
 
+        # Slack Notifications V1 - an independent sibling to the email
+        # notification above, not a modification of it. A Slack outage
+        # or a meeting owner who never connected Slack must never
+        # affect email delivery, and vice versa. Best-effort, never
+        # raises.
+        SlackNotificationService.notify_meeting_created(db, db_meeting)
+
         # The meeting is already committed above; cache invalidation
         # is best-effort and must not affect the response either way.
         cache_delete_prefix(meetings_list_prefix(current_user.id))
@@ -469,6 +477,10 @@ class MeetingService:
         # Best-effort: the update is already committed above.
         MeetingNotificationService.notify_meeting_updated(db, meeting)
 
+        # Slack Notifications V1 - independent sibling to the email
+        # notification above. Best-effort, never raises.
+        SlackNotificationService.notify_meeting_updated(db, meeting)
+
         cache_delete_prefix(meetings_list_prefix(current_user.id))
 
         return meeting
@@ -549,6 +561,11 @@ class MeetingService:
         # CASCADE once the meeting row is gone, so they must be read
         # first. Best-effort: an SMTP failure must not block deletion.
         MeetingNotificationService.notify_meeting_cancelled(db, meeting)
+
+        # Slack Notifications V1 - independent sibling to the email
+        # notification above. Best-effort, never raises, and must not
+        # block deletion either.
+        SlackNotificationService.notify_meeting_cancelled(db, meeting)
 
         # Delete meeting from database. Participant rows are removed
         # automatically at the database level (ON DELETE CASCADE on
@@ -1042,6 +1059,41 @@ class MeetingService:
 
         return {
             "message": "Zoom meeting unlinked successfully",
+        }
+
+    @staticmethod
+    def send_slack_notification(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+    ):
+        """
+        Used by POST /slack/send/{meeting_id}. Manually (re)sends a
+        Slack direct-message notification for this meeting to its
+        owner - for a meeting created before Slack was connected, or
+        to retry a failed automatic notification. Sends the same
+        notification content as the automatic create/update/cancel
+        notifications (see
+        SlackNotificationService.send_manual_notification).
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        SlackNotificationService.send_manual_notification(db, meeting)
+
+        return {
+            "message": "Slack notification sent successfully",
         }
 
     @staticmethod

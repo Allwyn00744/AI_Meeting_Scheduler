@@ -172,5 +172,37 @@ class Settings(BaseSettings):
             and self.ZOOM_CLIENT_SECRET.strip()
         )
 
+    # Slack OAuth (Slack Notifications)
+    # Optional, like ZOOM_CLIENT_ID above: /slack endpoints return 503
+    # when absent or blank. Create a Slack app (OAuth & Permissions ->
+    # Bot Token Scopes) at https://api.slack.com/apps to obtain these.
+    SLACK_CLIENT_ID: Optional[str] = None
+    SLACK_CLIENT_SECRET: Optional[str] = None
+    SLACK_REDIRECT_URI: str = "http://localhost:8000/slack/callback"
+
+    # chat:write is the only bot scope Slack Notifications V1 needs -
+    # chat.postMessage accepts a Slack user ID directly as the
+    # `channel` parameter to DM that user, with no separate
+    # conversations.open call or additional im:write scope required.
+    SLACK_SCOPES: str = "chat:write"
+
+    @property
+    def slack_scopes_list(self) -> list[str]:
+        return [
+            scope.strip()
+            for scope in self.SLACK_SCOPES.split(" ")
+            if scope.strip()
+        ]
+
+    @property
+    def slack_oauth_configured(self) -> bool:
+        """True only when both Slack OAuth credentials are set."""
+        return bool(
+            self.SLACK_CLIENT_ID
+            and self.SLACK_CLIENT_ID.strip()
+            and self.SLACK_CLIENT_SECRET
+            and self.SLACK_CLIENT_SECRET.strip()
+        )
+
 
 settings = Settings()
