@@ -152,7 +152,7 @@ class Settings(BaseSettings):
     ZOOM_CLIENT_SECRET: Optional[str] = None
     ZOOM_REDIRECT_URI: str = "http://localhost:8000/zoom/callback"
 
-    ZOOM_SCOPES: str = "meeting:write"
+    ZOOM_SCOPES: str = "meeting:write:meeting meeting:read:meeting user:read:user"
 
     @property
     def zoom_scopes_list(self) -> list[str]:
@@ -202,6 +202,43 @@ class Settings(BaseSettings):
             and self.SLACK_CLIENT_ID.strip()
             and self.SLACK_CLIENT_SECRET
             and self.SLACK_CLIENT_SECRET.strip()
+        )
+
+    # WhatsApp Cloud API (Meta) - WhatsApp Notifications
+    # Optional, like SLACK_CLIENT_ID above: /whatsapp send/test endpoints
+    # return 503 when absent or blank. Create a Meta app with the
+    # WhatsApp product added at https://developers.facebook.com/apps to
+    # obtain an access token and phone number ID.
+    WHATSAPP_ACCESS_TOKEN: Optional[str] = None
+    WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
+    WHATSAPP_API_VERSION: str = "v23.0"
+
+    @property
+    def whatsapp_configured(self) -> bool:
+        """True only when both WhatsApp Cloud API credentials are set."""
+        return bool(
+            self.WHATSAPP_ACCESS_TOKEN
+            and self.WHATSAPP_ACCESS_TOKEN.strip()
+            and self.WHATSAPP_PHONE_NUMBER_ID
+            and self.WHATSAPP_PHONE_NUMBER_ID.strip()
+        )
+
+    # Web Push / VAPID (Push Notifications)
+    # Optional, like WHATSAPP_ACCESS_TOKEN above: PushClient.send_notification
+    # returns False when absent or blank. Generate a VAPID key pair with
+    # `vapid --gen` (py-vapid, pulled in by pywebpush) to obtain these.
+    VAPID_PRIVATE_KEY: Optional[str] = None
+    VAPID_PUBLIC_KEY: Optional[str] = None
+    VAPID_CLAIM_EMAIL: str = "admin@example.com"
+
+    @property
+    def push_configured(self) -> bool:
+        """True only when both VAPID keys are set."""
+        return bool(
+            self.VAPID_PRIVATE_KEY
+            and self.VAPID_PRIVATE_KEY.strip()
+            and self.VAPID_PUBLIC_KEY
+            and self.VAPID_PUBLIC_KEY.strip()
         )
 
 

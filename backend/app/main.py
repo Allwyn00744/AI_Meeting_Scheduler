@@ -15,6 +15,8 @@ from app.api.outlook_routes import router as outlook_router
 from app.api.zoom_routes import router as zoom_router
 from app.api.teams_routes import router as teams_router
 from app.api.slack_routes import router as slack_router
+from app.api.whatsapp_routes import router as whatsapp_router
+from app.api.push_routes import router as push_router
 from app.api.ai_routes import router as ai_router
 from app.api.meeting_intelligence_routes import (
     router as meeting_intelligence_router,
@@ -98,6 +100,8 @@ app.include_router(outlook_router)
 app.include_router(zoom_router)
 app.include_router(teams_router)
 app.include_router(slack_router)
+app.include_router(whatsapp_router)
+app.include_router(push_router)
 app.include_router(ai_router)
 app.include_router(meeting_intelligence_router)
 app.include_router(meeting_note_router)

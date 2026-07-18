@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from app.models.outlook_credential import OutlookCredential
     from app.models.zoom_credential import ZoomCredential
     from app.models.slack_credential import SlackCredential
+    from app.models.whatsapp_settings import WhatsAppSettings
+    from app.models.push_subscription import PushSubscription
 
 
 class User(Base):
@@ -77,5 +79,18 @@ class User(Base):
         "SlackCredential",
         back_populates="user",
         uselist=False,
+        cascade="all, delete-orphan",
+    )
+    whatsapp_settings: Mapped["WhatsAppSettings | None"] = relationship(
+        "WhatsAppSettings",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    # Push Notifications V1: unlike the single-row integrations above,
+    # a user can have many subscriptions (one per browser/device).
+    push_subscriptions: Mapped[list["PushSubscription"]] = relationship(
+        "PushSubscription",
+        back_populates="user",
         cascade="all, delete-orphan",
     )
