@@ -22,3 +22,5 @@ from app.models.meeting_owner_insight import MeetingOwnerInsight
 from app.models.analytics_event import AnalyticsEvent
 from app.models.slack_credential import SlackCredential
 from app.models.slack_oauth_state import SlackOAuthState
+from app.models.whatsapp_settings import WhatsAppSettings
+from app.models.push_subscription import PushSubscription

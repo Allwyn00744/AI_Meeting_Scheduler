@@ -72,6 +72,10 @@ def zoom_connect(
         state=state,
     )
 
+    print("\n========== ZOOM AUTH URL ==========")
+    print(authorization_url)
+    print("===================================\n")
+
     return {"authorization_url": authorization_url}
 
 

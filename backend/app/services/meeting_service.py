@@ -39,8 +39,12 @@ from app.services.meeting_notification_service import (
     MeetingNotificationService,
 )
 from app.services.outlook_calendar_service import OutlookCalendarService
+from app.services.push_notification_service import PushNotificationService
 from app.services.slack_notification_service import SlackNotificationService
 from app.services.teams_meeting_service import TeamsMeetingService
+from app.services.whatsapp_notification_service import (
+    WhatsAppNotificationService,
+)
 from app.services.zoom_calendar_service import ZoomCalendarService
 
 logger = logging.getLogger(__name__)
@@ -295,6 +299,15 @@ class MeetingService:
         # raises.
         SlackNotificationService.notify_meeting_created(db, db_meeting)
 
+        # WhatsApp Notifications V1 - independent sibling to the email
+        # and Slack notifications above. Best-effort, never raises.
+        WhatsAppNotificationService.notify_meeting_created(db, db_meeting)
+
+        # Push Notifications V1 - independent sibling to the email,
+        # Slack, and WhatsApp notifications above. Best-effort, never
+        # raises.
+        PushNotificationService.notify_meeting_created(db, db_meeting)
+
         # The meeting is already committed above; cache invalidation
         # is best-effort and must not affect the response either way.
         cache_delete_prefix(meetings_list_prefix(current_user.id))
@@ -481,6 +494,15 @@ class MeetingService:
         # notification above. Best-effort, never raises.
         SlackNotificationService.notify_meeting_updated(db, meeting)
 
+        # WhatsApp Notifications V1 - independent sibling to the email
+        # and Slack notifications above. Best-effort, never raises.
+        WhatsAppNotificationService.notify_meeting_updated(db, meeting)
+
+        # Push Notifications V1 - independent sibling to the email,
+        # Slack, and WhatsApp notifications above. Best-effort, never
+        # raises.
+        PushNotificationService.notify_meeting_updated(db, meeting)
+
         cache_delete_prefix(meetings_list_prefix(current_user.id))
 
         return meeting
@@ -566,6 +588,16 @@ class MeetingService:
         # notification above. Best-effort, never raises, and must not
         # block deletion either.
         SlackNotificationService.notify_meeting_cancelled(db, meeting)
+
+        # WhatsApp Notifications V1 - independent sibling to the email
+        # and Slack notifications above. Best-effort, never raises,
+        # and must not block deletion either.
+        WhatsAppNotificationService.notify_meeting_cancelled(db, meeting)
+
+        # Push Notifications V1 - independent sibling to the email,
+        # Slack, and WhatsApp notifications above. Best-effort, never
+        # raises, and must not block deletion either.
+        PushNotificationService.notify_meeting_cancelled(db, meeting)
 
         # Delete meeting from database. Participant rows are removed
         # automatically at the database level (ON DELETE CASCADE on
@@ -1094,6 +1126,45 @@ class MeetingService:
 
         return {
             "message": "Slack notification sent successfully",
+        }
+
+    @staticmethod
+    def send_whatsapp_notification(
+        db: Session,
+        meeting_id: int,
+        current_user: User,
+        message: str | None = None,
+    ):
+        """
+        Used by POST /whatsapp/send/{meeting_id}. Manually (re)sends a
+        WhatsApp notification for this meeting to its owner - for a
+        meeting created before WhatsApp was enabled, or to retry a
+        failed automatic notification. Mirrors
+        MeetingService.send_slack_notification above (see
+        WhatsAppNotificationService.send_manual_notification).
+        """
+        meeting = MeetingRepository.get_by_id(db, meeting_id)
+
+        if meeting is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Meeting not found",
+            )
+
+        if meeting.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized",
+            )
+
+        WhatsAppNotificationService.send_manual_notification(
+            db,
+            meeting,
+            message,
+        )
+
+        return {
+            "message": "WhatsApp notification sent successfully",
         }
 
     @staticmethod
